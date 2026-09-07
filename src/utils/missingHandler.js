@@ -126,11 +126,11 @@ export function generateMissingRecommendations(columnsMetadata) {
       rec.alternativeMethods = ['Custom Value', 'Drop Rows'];
     } else if (col.dataType === 'Date') {
       const stats = col.stats || {};
-      rec.recommendedMethod = 'Mode';
-      rec.confidence = 80;
-      rec.suggestedValue = stats.mode || 'N/A';
-      rec.reason = `Temporal column. Imputing with the most common date entry ('${stats.mode}') or using a dedicated sentinel date is advised.`;
-      rec.alternativeMethods = ['Custom Value', 'Drop Rows'];
+      rec.recommendedMethod = 'Forward Fill (ffill)';
+      rec.confidence = 90;
+      rec.suggestedValue = '(Sequential Prev Date)';
+      rec.reason = `Temporal date column detected. Forward fill (ffill) or median date is recommended to maintain chronological sequence without introducing synthetic mode bias.`;
+      rec.alternativeMethods = ['Backward Fill (bfill)', 'Median Date', 'Mode', 'Custom Value', 'Drop Rows'];
     } else if (col.dataType === 'ID / Key') {
       rec.recommendedMethod = 'Drop Rows';
       rec.confidence = 94;
@@ -168,7 +168,7 @@ export function generateMissingRecommendations(columnsMetadata) {
  * Executes imputation on a dataset for a specific column and method
  * @param {Array<Object>} rows 
  * @param {string} column 
- * @param {string} method ('Mean' | 'Median' | 'Mode' | 'Custom Value' | 'Drop Rows')
+ * @param {string} method ('Mean' | 'Median' | 'Mode' | 'Forward Fill (ffill)' | 'Backward Fill (bfill)' | 'Median Date' | 'Custom Value' | 'Drop Rows')
  * @param {any} customValue 
  * @param {string} columnType (optional type for type safety validation)
  * @param {Object} options (missing marker options)
@@ -232,7 +232,54 @@ export function executeImputation(rows, column, method, customValue = '', column
     .filter(r => !isMissingValue(r[column], options))
     .map(r => r[column]);
 
-  if (method === 'Mean') {
+  if (method === 'Forward Fill (ffill)' || method === 'Forward Fill' || method === 'ffill') {
+    let lastValid = null;
+    updatedRows.forEach((row) => {
+      if (!isMissingValue(row[column], options)) {
+        lastValid = row[column];
+      } else if (lastValid !== null) {
+        row[column] = lastValid;
+      }
+    });
+    const firstValid = nonMissingValues[0] || '1970-01-01';
+    updatedRows.forEach((row) => {
+      if (isMissingValue(row[column], options)) {
+        row[column] = firstValid;
+      }
+    });
+    replacementValue = '(Forward Filled)';
+  } else if (method === 'Backward Fill (bfill)' || method === 'Backward Fill' || method === 'bfill') {
+    let nextValid = null;
+    for (let idx = updatedRows.length - 1; idx >= 0; idx--) {
+      if (!isMissingValue(updatedRows[idx][column], options)) {
+        nextValid = updatedRows[idx][column];
+      } else if (nextValid !== null) {
+        updatedRows[idx][column] = nextValid;
+      }
+    }
+    const lastValid = nonMissingValues[nonMissingValues.length - 1] || '1970-01-01';
+    updatedRows.forEach((row) => {
+      if (isMissingValue(row[column], options)) {
+        row[column] = lastValid;
+      }
+    });
+    replacementValue = '(Backward Filled)';
+  } else if (method === 'Median Date') {
+    const timestamps = nonMissingValues
+      .map(v => Date.parse(v))
+      .filter(t => !isNaN(t))
+      .sort((a, b) => a - b);
+    if (timestamps.length > 0) {
+      const mid = Math.floor(timestamps.length / 2);
+      const medianTimestamp = timestamps.length % 2 === 0
+        ? Math.round((timestamps[mid - 1] + timestamps[mid]) / 2)
+        : timestamps[mid];
+      const d = new Date(medianTimestamp);
+      replacementValue = d.toISOString().split('T')[0];
+    } else {
+      replacementValue = '1970-01-01';
+    }
+  } else if (method === 'Mean') {
     const stats = computeNumericStats(nonMissingValues, options);
     replacementValue = stats.mean;
   } else if (method === 'Median') {
@@ -242,7 +289,6 @@ export function executeImputation(rows, column, method, customValue = '', column
     const stats = computeCategoricalStats(nonMissingValues, options);
     replacementValue = stats.mode;
   } else if (method === 'Custom Value') {
-    // Type-safe validation
     if (columnType) {
       const typeCheck = validateAndCoerceCustomValue(customValue, columnType);
       if (!typeCheck.valid) {
@@ -253,7 +299,6 @@ export function executeImputation(rows, column, method, customValue = '', column
       replacementValue = customValue;
     }
   } else {
-    // Default fallback to median if numeric, else mode
     const stats = computeNumericStats(nonMissingValues, options);
     replacementValue = stats.count > 0 ? stats.median : 'Unknown';
   }

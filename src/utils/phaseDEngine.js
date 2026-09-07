@@ -319,7 +319,7 @@ export function runAccuracyBenchmarkEvaluation(testDatasetId) {
   const recall = (truePositives + falseNegatives) > 0 ? (truePositives / (truePositives + falseNegatives)) : 1.0;
   const f1Score = (precision + recall) > 0 ? (2 * (precision * recall) / (precision + recall)) : 1.0;
   const detectionAccuracy = (truePositives + trueNegatives) / (truePositives + trueNegatives + falsePositives + falseNegatives);
-  const correctionAccuracy = 0.94; // 94% correction success rate
+  const correctionAccuracy = totalDetected > 0 ? (truePositives / totalDetected) : 1.0;
   const falsePositiveRate = (falsePositives + trueNegatives) > 0 ? (falsePositives / (falsePositives + trueNegatives)) : 0.02;
 
   return {
@@ -329,6 +329,8 @@ export function runAccuracyBenchmarkEvaluation(testDatasetId) {
       falsePositives,
       falseNegatives,
       trueNegatives,
+      totalRecords: rows.length,
+      totalCellAttributes: rows.length * headers.length,
       precision: Number((precision * 100).toFixed(1)),
       recall: Number((recall * 100).toFixed(1)),
       f1Score: Number((f1Score * 100).toFixed(1)),

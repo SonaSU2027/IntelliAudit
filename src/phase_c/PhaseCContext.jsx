@@ -16,7 +16,8 @@ import {
   buildAuditReportData, 
   downloadCleanedCSV, 
   downloadAuditReportJSON, 
-  downloadAuditReportMarkdown 
+  downloadAuditReportMarkdown,
+  downloadAuditReportTXT 
 } from './auditReportGenerator.js';
 import { runDetectionEngine } from '../utils/detectionEngine.js';
 
@@ -33,14 +34,18 @@ export function usePhaseC() {
 export function PhaseCProvider({ children }) {
   const {
     originalDataset,
+    workingDataset,
     columnMetadata,
     missingRecommendations,
+    imputationResults = [],
     detectionResults,
     setDetectionResults,
     metadata,
     auditLog,
     profilingOptions
   } = useDataset();
+
+  const activeInputDataset = useMemo(() => workingDataset || originalDataset, [workingDataset, originalDataset]);
 
   // User decisions map keyed by recommendation ID: { status, userCustomValue, suggestedAction }
   const [userDecisions, setUserDecisions] = useState({});
@@ -55,31 +60,31 @@ export function PhaseCProvider({ children }) {
 
   // Auto-run detection engine if not already run for uploaded dataset
   useEffect(() => {
-    if (originalDataset && originalDataset.rows && originalDataset.rows.length > 0) {
+    if (activeInputDataset && activeInputDataset.rows && activeInputDataset.rows.length > 0) {
       const summary = detectionResults?.detection_summary;
-      if (!summary && originalDataset.headers) {
-        const cleanHeaders = originalDataset.headers.filter(h => h !== '__row_id');
-        const autoDet = runDetectionEngine(originalDataset.rows, cleanHeaders);
+      if (!summary && activeInputDataset.headers) {
+        const cleanHeaders = activeInputDataset.headers.filter(h => h !== '__row_id');
+        const autoDet = runDetectionEngine(activeInputDataset.rows, cleanHeaders);
         if (typeof setDetectionResults === 'function') {
           setDetectionResults(autoDet);
         }
       }
     }
-  }, [originalDataset, detectionResults, setDetectionResults]);
+  }, [activeInputDataset, detectionResults, setDetectionResults]);
 
-  // Generate base recommendations dynamically
+  // Generate base recommendations dynamically on cumulative input dataset
   const baseRecommendations = useMemo(() => {
-    if (!originalDataset || !originalDataset.rows || originalDataset.rows.length === 0) {
+    if (!activeInputDataset || !activeInputDataset.rows || activeInputDataset.rows.length === 0) {
       return [];
     }
     return generateExplainableRecommendations({
-      rows: originalDataset.rows,
-      headers: originalDataset.headers || [],
+      rows: activeInputDataset.rows,
+      headers: activeInputDataset.headers || [],
       columnMetadata: columnMetadata || [],
       missingRecommendations: missingRecommendations || [],
       detectionResults: detectionResults || {}
     });
-  }, [originalDataset, columnMetadata, missingRecommendations, detectionResults]);
+  }, [activeInputDataset, columnMetadata, missingRecommendations, detectionResults]);
 
   // Combine base recommendations with live user decisions
   const recommendations = useMemo(() => {
@@ -180,20 +185,20 @@ export function PhaseCProvider({ children }) {
     setCleanedDatasetState(null);
   }, []);
 
-  // Execute Cleaning Engine on Approved Recommendations
+  // Execute Cleaning Engine on Approved Recommendations using activeInputDataset
   const executeCleaning = useCallback(() => {
-    if (!originalDataset || !originalDataset.rows) return null;
+    if (!activeInputDataset || !activeInputDataset.rows) return null;
 
     const result = executeApprovedCleaning({
-      rows: originalDataset.rows,
-      headers: originalDataset.headers,
+      rows: activeInputDataset.rows,
+      headers: activeInputDataset.headers,
       approvedRecommendations,
       columnMetadata: columnMetadata || [],
       profilingOptions: profilingOptions || {}
     });
 
     const finalCleaned = {
-      headers: [...originalDataset.headers],
+      headers: [...activeInputDataset.headers],
       rows: result.cleanedRows
     };
 
@@ -203,35 +208,62 @@ export function PhaseCProvider({ children }) {
     setHasExecutedCleaning(true);
 
     return result;
-  }, [originalDataset, approvedRecommendations, columnMetadata, profilingOptions]);
+  }, [activeInputDataset, approvedRecommendations, columnMetadata, profilingOptions]);
 
-  // Cleaned dataset (defaults to execution result, or auto-evaluates approved ops)
+  // Cleaned dataset (defaults to execution result, or auto-evaluates approved ops, fallback to activeInputDataset)
   const finalCleanedDataset = useMemo(() => {
     if (cleanedDatasetState) return cleanedDatasetState;
-    if (!originalDataset || !originalDataset.rows) return null;
+    if (!activeInputDataset || !activeInputDataset.rows) return null;
 
     if (approvedRecommendations.length > 0) {
       const result = executeApprovedCleaning({
-        rows: originalDataset.rows,
-        headers: originalDataset.headers,
+        rows: activeInputDataset.rows,
+        headers: activeInputDataset.headers,
         approvedRecommendations,
         columnMetadata: columnMetadata || [],
         profilingOptions: profilingOptions || {}
       });
       return {
-        headers: [...originalDataset.headers],
+        headers: [...activeInputDataset.headers],
         rows: result.cleanedRows
       };
     }
 
-    return originalDataset;
-  }, [cleanedDatasetState, originalDataset, approvedRecommendations, columnMetadata, profilingOptions]);
+    return activeInputDataset;
+  }, [cleanedDatasetState, activeInputDataset, approvedRecommendations, columnMetadata, profilingOptions]);
 
   // Compute Before vs After Quality Comparison
   const qualityComparison = useMemo(() => {
     if (!originalDataset || !originalDataset.rows) return null;
     return computeBeforeAfterComparison(originalDataset, finalCleanedDataset, detectionResults);
   }, [originalDataset, finalCleanedDataset, detectionResults]);
+
+  // Combine missing value imputations and Phase C cleaning operations into master applied operations list
+  const combinedAppliedOperations = useMemo(() => {
+    const impOps = (imputationResults || []).map((imp, i) => ({
+      id: `op-imp-${i}`,
+      timestamp: imp.timestamp || new Date().toLocaleTimeString(),
+      category: 'Missing Values',
+      action: `Impute Missing (${imp.method})`,
+      column: imp.column,
+      details: `Imputed ${imp.affectedRowCount || 0} missing values in '${imp.column}' via ${imp.method}.`,
+      replacementValue: imp.replacementValue,
+      affectedRowsCount: imp.affectedRowCount || 0,
+      confidence: 90,
+      confidenceLevel: 'High'
+    }));
+    const phaseCOps = appliedOpsState.length > 0 ? appliedOpsState : approvedRecommendations.map(r => ({
+      id: r.id,
+      timestamp: new Date().toLocaleTimeString(),
+      category: r.category,
+      action: r.suggestedAction || r.type,
+      column: r.column,
+      details: r.explanation || r.reason,
+      confidence: r.confidence,
+      confidenceLevel: r.confidenceLevel
+    }));
+    return [...impOps, ...phaseCOps];
+  }, [imputationResults, appliedOpsState, approvedRecommendations]);
 
   // Build Audit Report Data Structure
   const auditReportData = useMemo(() => {
@@ -240,18 +272,18 @@ export function PhaseCProvider({ children }) {
       originalDataset,
       cleanedDataset: finalCleanedDataset,
       recommendations,
-      appliedOperations: appliedOpsState.length > 0 ? appliedOpsState : approvedRecommendations,
+      appliedOperations: combinedAppliedOperations,
       auditLog: auditLog || [],
       qualityComparison,
-      cleaningSummary: cleaningSummaryState || {
-        duplicatesRemoved: qualityComparison?.delta?.duplicatesRemoved || 0,
-        anomaliesHandled: qualityComparison?.delta?.anomaliesHandled || 0,
-        typosCorrected: qualityComparison?.delta?.inconsistenciesCorrected || 0,
-        ruleViolationsFixed: qualityComparison?.delta?.ruleViolationsFixed || 0,
-        missingValuesImputed: qualityComparison?.delta?.missingResolved || 0
+      cleaningSummary: {
+        duplicatesRemoved: cleaningSummaryState?.duplicatesRemoved || qualityComparison?.delta?.duplicatesRemoved || 0,
+        anomaliesHandled: cleaningSummaryState?.anomaliesHandled || qualityComparison?.delta?.anomaliesHandled || 0,
+        typosCorrected: cleaningSummaryState?.typosCorrected || qualityComparison?.delta?.inconsistenciesCorrected || 0,
+        ruleViolationsFixed: cleaningSummaryState?.ruleViolationsFixed || qualityComparison?.delta?.ruleViolationsFixed || 0,
+        missingValuesImputed: (imputationResults?.length || 0) + (cleaningSummaryState?.missingValuesImputed || qualityComparison?.delta?.missingResolved || 0)
       }
     });
-  }, [metadata, originalDataset, finalCleanedDataset, recommendations, appliedOpsState, approvedRecommendations, auditLog, qualityComparison, cleaningSummaryState]);
+  }, [metadata, originalDataset, finalCleanedDataset, recommendations, combinedAppliedOperations, auditLog, qualityComparison, cleaningSummaryState, imputationResults]);
 
   // Export handlers
   const handleDownloadCSV = useCallback(() => {
@@ -264,6 +296,10 @@ export function PhaseCProvider({ children }) {
 
   const handleDownloadReportMD = useCallback(() => {
     downloadAuditReportMarkdown(auditReportData, metadata?.filename || 'dataset.csv');
+  }, [auditReportData, metadata]);
+
+  const handleDownloadReportTXT = useCallback(() => {
+    downloadAuditReportTXT(auditReportData, metadata?.filename || 'dataset.csv');
   }, [auditReportData, metadata]);
 
   const value = {
@@ -306,7 +342,8 @@ export function PhaseCProvider({ children }) {
     auditReportData,
     handleDownloadCSV,
     handleDownloadReportJSON,
-    handleDownloadReportMD
+    handleDownloadReportMD,
+    handleDownloadReportTXT
   };
 
   return (

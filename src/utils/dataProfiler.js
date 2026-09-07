@@ -121,9 +121,11 @@ export function detectColumnType(values, columnName = '', options = {}) {
 
   // Check String ID / Key
   const lowerName = columnName.toLowerCase();
-  const isIdName = lowerName === 'id' || lowerName.endsWith('_id') || lowerName.includes('uuid') || lowerName.includes('token');
-  const uniqueRatio = new Set(nonMissing).size / nonMissing.length;
-  if (isIdName || (uniqueRatio === 1.0 && nonMissing.length > 20)) {
+  const isIdName = lowerName === 'id' || lowerName.endsWith('_id') || lowerName.endsWith('id') || lowerName.includes('uuid') || lowerName.includes('token') || lowerName.includes('guid');
+  const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  const isUuidPattern = nonMissing.length > 0 && nonMissing.every(v => uuidPattern.test(v));
+
+  if (isIdName || isUuidPattern) {
     return 'ID / Key';
   }
 

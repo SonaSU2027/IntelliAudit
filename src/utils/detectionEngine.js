@@ -1014,74 +1014,155 @@ export function detectIsolationForestAnomalies(
     })
   );
 
+  let isolationScores = null;
+
   try {
-    /*
-     * Create and train the Isolation Forest.
-     *
-     * 256 = maximum subsampling size
-     * 100 = number of isolation trees
-     * contamination = expected proportion of anomalies
-     */
-    const model = new Ensemble.IsolationForest(
-      256,
-      100,
-      contamination
-    );
-
-    model.fit(featureMatrix);
-
-    /*
-     * predict() returns:
-     * 0 = normal
-     * 1 = anomaly
-     */
-    const predictions = model.predict(featureMatrix);
-
-    rows.forEach((row, index) => {
-      if (predictions[index] !== 1) return;
-
-      let score = null;
-
-      /*
-       * anomalyScore() gives a continuous anomaly score
-       * when supported by the installed library version.
-       */
-      if (typeof model.anomalyScore === 'function') {
-        score = model.anomalyScore(featureMatrix[index]);
-      }
-
-      const confidence =
-        score !== null
-          ? Math.min(Math.max(score, 0), 1)
-          : contamination;
-
-      anomalies.push({
-        row: index,
-        column: numericHeaders.join(', '),
-        originalValue: numericHeaders.reduce((values, header) => {
-          values[header] = row[header];
-          return values;
-        }, {}),
-        issueType: 'Multivariate Anomaly',
-        detectionMethod: 'Isolation Forest',
-        severity: confidence >= 0.7 ? 'High' : 'Medium',
-        confidence: Number(confidence.toFixed(3)),
-        anomalyScore:
-          score !== null ? Number(score.toFixed(3)) : null,
-        reason: `This row was identified as unusual based on the combined pattern of ${numericHeaders.length} numerical features.`,
-        recommendedAction:
-          'Review the related numerical values before making any correction.',
-        featuresUsed: [...numericHeaders]
+    if (Ensemble && Ensemble.IsolationForest) {
+      const model = new Ensemble.IsolationForest(256, 100, contamination);
+      model.fit(featureMatrix);
+      const predictions = model.predict(featureMatrix);
+      
+      rows.forEach((row, index) => {
+        if (predictions[index] === 1) {
+          let score = typeof model.anomalyScore === 'function' ? model.anomalyScore(featureMatrix[index]) : contamination;
+          const confidence = score !== null ? Math.min(Math.max(score, 0), 1) : contamination;
+          anomalies.push({
+            row: index,
+            column: numericHeaders.join(', '),
+            originalValue: numericHeaders.reduce((values, header) => {
+              values[header] = row[header];
+              return values;
+            }, {}),
+            issueType: 'Multivariate Anomaly',
+            detectionMethod: 'Isolation Forest',
+            severity: confidence >= 0.7 ? 'High' : 'Medium',
+            confidence: Number(confidence.toFixed(3)),
+            anomalyScore: score !== null ? Number(score.toFixed(3)) : null,
+            reason: `This row was identified as unusual based on the combined pattern of ${numericHeaders.length} numerical features.`,
+            recommendedAction: 'Review the related numerical values before making any correction.',
+            featuresUsed: [...numericHeaders]
+          });
+        }
       });
-    });
+    }
   } catch (error) {
-    console.error(
-      'Isolation Forest detection failed:',
-      error
-    );
+    console.warn('Ensemble.IsolationForest external library execution skipped, running native JS Isolation Forest fallback:', error);
+  }
+
+  // Fallback to Native JS Isolation Forest if library failed or returned 0 anomalies
+  if (anomalies.length === 0 && rows.length >= 4 && numericHeaders.length >= 1) {
+    const scores = runPureJSIsolationForest(featureMatrix, contamination);
+    
+    // Determine dynamic threshold (top contamination % or score > 0.62)
+    const sortedScores = [...scores].sort((a, b) => b - a);
+    const thresholdIdx = Math.floor(scores.length * contamination);
+    const threshold = Math.max(0.60, sortedScores[thresholdIdx] || 0.60);
+
+    scores.forEach((score, index) => {
+      if (score >= threshold) {
+        const row = rows[index];
+        const confidence = Math.min(0.99, Number((score).toFixed(3)));
+        anomalies.push({
+          row: index,
+          column: numericHeaders.join(', '),
+          originalValue: numericHeaders.reduce((values, header) => {
+            values[header] = row[header];
+            return values;
+          }, {}),
+          issueType: 'Multivariate Anomaly',
+          detectionMethod: 'Isolation Forest',
+          severity: confidence >= 0.75 ? 'High' : 'Medium',
+          confidence: confidence,
+          anomalyScore: Number(score.toFixed(3)),
+          reason: `Unusual multi-attribute numerical profile detected by Isolation Forest (anomaly score: ${score.toFixed(3)}).`,
+          recommendedAction: 'Review multi-feature values or winsorize bounds.',
+          featuresUsed: [...numericHeaders]
+        });
+      }
+    });
   }
 
   return anomalies;
+}
+
+/**
+ * Pure JavaScript Isolation Forest Anomaly Detection Algorithm
+ */
+function runPureJSIsolationForest(featureMatrix, contamination = 0.05, numTrees = 50) {
+  const n = featureMatrix.length;
+  if (n < 4) return [];
+
+  const numFeatures = featureMatrix[0].length;
+  if (numFeatures === 0) return [];
+
+  const c = (size) => {
+    if (size <= 1) return 0;
+    if (size === 2) return 1;
+    return 2 * (Math.log(size - 1) + 0.5772156649) - (2 * (size - 1) / size);
+  };
+
+  const c_n = c(n);
+  if (c_n === 0) return [];
+
+  const trees = [];
+  const subSampleSize = Math.min(n, 256);
+
+  for (let t = 0; t < numTrees; t++) {
+    const sample = [];
+    for (let s = 0; s < subSampleSize; s++) {
+      sample.push(featureMatrix[Math.floor(Math.random() * n)]);
+    }
+
+    const buildTree = (matrix, currentDepth = 0, maxDepth = 10) => {
+      if (matrix.length <= 1 || currentDepth >= maxDepth) {
+        return { size: matrix.length, isLeaf: true };
+      }
+
+      const featureIdx = Math.floor(Math.random() * numFeatures);
+      const values = matrix.map(r => r[featureIdx]);
+      const minVal = Math.min(...values);
+      const maxVal = Math.max(...values);
+
+      if (minVal === maxVal) {
+        return { size: matrix.length, isLeaf: true };
+      }
+
+      const splitValue = minVal + Math.random() * (maxVal - minVal);
+      const left = [];
+      const right = [];
+      matrix.forEach(row => {
+        if (row[featureIdx] < splitValue) left.push(row);
+        else right.push(row);
+      });
+
+      return {
+        featureIdx,
+        splitValue,
+        isLeaf: false,
+        left: buildTree(left, currentDepth + 1, maxDepth),
+        right: buildTree(right, currentDepth + 1, maxDepth)
+      };
+    };
+
+    trees.push(buildTree(sample));
+  }
+
+  const pathLength = (row, node, depth = 0) => {
+    if (!node || node.isLeaf) {
+      return depth + c(node ? node.size : 1);
+    }
+    if (row[node.featureIdx] < node.splitValue) {
+      return pathLength(row, node.left, depth + 1);
+    } else {
+      return pathLength(row, node.right, depth + 1);
+    }
+  };
+
+  return featureMatrix.map(row => {
+    const totalPathLength = trees.reduce((acc, tree) => acc + pathLength(row, tree), 0);
+    const avgPathLength = totalPathLength / numTrees;
+    return Math.pow(2, - (avgPathLength / c_n));
+  });
 }
 export function runDetectionEngine(rows, headers) {
   const duplicateResults = detectExactDuplicates(rows, headers);

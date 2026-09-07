@@ -144,11 +144,7 @@ export default function DashboardPhaseC() {
               <Zap className="w-3.5 h-3.5" />
               IntelliAudit Live Quality Center
             </span>
-<<<<<<< HEAD
             <span className="text-xs text-slate-400 dark:text-[#8ba3c9]">Step 3 of 8</span>
-=======
-            <span className="text-xs text-slate-400 dark:text-[#8ba3c9]">Phase C Analytics</span>
->>>>>>> upstream/main
           </div>
           <h2 className="text-3xl font-extrabold tracking-tight text-slate-900 dark:text-white">
             Data Quality & Cleaning Dashboard

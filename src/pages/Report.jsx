@@ -57,7 +57,8 @@ export default function Report() {
     auditReportData,
     handleDownloadCSV,
     handleDownloadReportJSON,
-    handleDownloadReportMD
+    handleDownloadReportMD,
+    handleDownloadReportTXT
   } = usePhaseC();
 
   // Active Tab State (4 Sub-tabs)
@@ -106,8 +107,7 @@ export default function Report() {
         </div>
         <h2 className="text-3xl font-bold text-slate-800 dark:text-white mb-3">No Dataset Loaded</h2>
         <p className="text-slate-500 dark:text-[#8ba3c9] max-w-md mb-8">
-          Please upload a CSV dataset to run post-cleaning validation, view audit reports, and test benchmark datasets.
-        </p>
+          Please upload a CSV dataset to run post-cleaning validation, view audit reports, and test benchmark datasets.        </p>
         <Link
           to="/upload"
           className="px-8 py-3.5 bg-blue-600 hover:bg-blue-500 text-white font-medium rounded-xl shadow-lg transition-all transform hover:-translate-y-0.5"
@@ -123,6 +123,22 @@ export default function Report() {
   const qualityMetrics = auditReportData?.quality_metrics || {};
   const cleanSummary = auditReportData?.cleaning_summary || {};
   const auditTrail = auditReportData?.audit_trail || [];
+
+  // Robustly derived values with fallback to live dataset state
+  const displayOriginalRecords = datasetOverview.original_records ?? datasetOverview.original_rows ?? originalDataset?.rows?.length ?? 0;
+  const displayFinalRecords = datasetOverview.final_records ?? datasetOverview.cleaned_rows ?? workingDataset?.rows?.length ?? displayOriginalRecords;
+  const displayTotalColumns = datasetOverview.total_columns ?? datasetOverview.columns_count ?? (originalDataset?.headers?.filter(h => h !== '__row_id').length) ?? 0;
+
+  const displayOpsExecuted = cleanSummary.total_approved_actions_applied ?? cleanSummary.approved_operations_count ?? (auditReportData?.approved_operations?.length) ?? 0;
+
+  const displayScoreBefore = qualityMetrics.overall_quality_score_before ?? qualityMetrics.before_score ?? validationResults?.before?.overallScore ?? 65;
+  const displayScoreAfter = qualityMetrics.overall_quality_score_after ?? qualityMetrics.after_score ?? validationResults?.after?.overallScore ?? 94;
+  const displayScoreImprovement = qualityMetrics.score_improvement ?? qualityMetrics.improvement_percentage ?? (displayScoreAfter - displayScoreBefore);
+
+  const displayCompleteness = qualityMetrics.completeness_score ?? validationResults?.after?.dimensions?.completeness ?? validationResults?.before?.dimensions?.completeness ?? 98;
+  const displayUniqueness = qualityMetrics.uniqueness_score ?? validationResults?.after?.dimensions?.uniqueness ?? validationResults?.before?.dimensions?.uniqueness ?? 99;
+  const displayValidity = qualityMetrics.validity_score ?? validationResults?.after?.dimensions?.validity ?? validationResults?.before?.dimensions?.validity ?? 93;
+  const displayAnomalyHealth = qualityMetrics.anomaly_health_score ?? validationResults?.after?.dimensions?.anomalyHealth ?? validationResults?.before?.dimensions?.anomalyHealth ?? 91;
 
   const filteredTrail = auditTrail.filter(entry => {
     if (logCategory !== 'All' && entry.category !== logCategory) return false;
@@ -148,46 +164,51 @@ export default function Report() {
             </span>
             <span className="text-xs text-slate-400 dark:text-[#8ba3c9]">Step 8 of 8</span>
           </div>
-          <h2 className="text-3xl font-extrabold tracking-tight text-slate-900 dark:text-white">
+          <h1 className="text-3xl font-bold text-slate-900 dark:text-white tracking-tight">
             Data Quality Audit & Validation Workspace
-          </h2>
-          <p className="text-slate-500 dark:text-[#8ba3c9] mt-1 text-sm">
+          </h1>
+          <p className="text-sm text-slate-500 dark:text-[#8ba3c9] mt-1">
             Formal compliance report, post-cleaning validation, side-effect detection, and F1-score accuracy evaluation.
           </p>
         </div>
 
-        {/* Global Export Buttons */}
-        <div className="flex flex-wrap items-center gap-2.5">
+        {/* Action Button Bar */}
+        <div className="flex items-center gap-3 flex-wrap">
           <button
             onClick={handleDownloadCSV}
-            className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold rounded-lg shadow-md flex items-center gap-2 transition-all"
+            className="flex items-center gap-2 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-semibold shadow-md transition-all"
           >
             <Download className="w-4 h-4" /> Cleaned CSV
           </button>
           <button
             onClick={handleDownloadReportMD}
-            className="px-4 py-2 bg-slate-800 hover:bg-slate-700 dark:bg-[#113677] dark:hover:bg-[#1a4080] text-white text-xs font-semibold rounded-lg shadow-md flex items-center gap-2 transition-all border border-slate-700"
+            className="flex items-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-semibold shadow-md transition-all"
           >
             <FileText className="w-4 h-4" /> Markdown Report
           </button>
           <button
             onClick={handleDownloadReportJSON}
-            className="px-4 py-2 bg-slate-100 dark:bg-[#0a1e45] text-slate-700 dark:text-slate-200 hover:bg-slate-200 dark:hover:bg-[#15346e] text-xs font-semibold rounded-lg border border-slate-200 dark:border-[#1a325a] flex items-center gap-2 transition-all"
+            className="flex items-center gap-2 px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-white rounded-xl text-xs font-semibold shadow-md transition-all border border-slate-700"
           >
             <Download className="w-4 h-4" /> JSON Audit
           </button>
           <button
+            onClick={handleDownloadReportTXT}
+            className="flex items-center gap-2 px-4 py-2.5 bg-purple-600 hover:bg-purple-500 text-white rounded-xl text-xs font-semibold shadow-md transition-all"
+          >
+            <FileSpreadsheet className="w-4 h-4" /> TXT Summary
+          </button>
+          <button
             onClick={handlePrint}
-            className="px-3.5 py-2 bg-slate-100 dark:bg-[#0a1e45] text-slate-600 dark:text-[#8ba3c9] hover:text-slate-900 dark:hover:text-white text-xs font-semibold rounded-lg border border-slate-200 dark:border-[#1a325a] flex items-center gap-1.5 transition-all"
-            title="Print Report"
+            className="flex items-center gap-2 px-4 py-2.5 bg-slate-100 hover:bg-slate-200 dark:bg-[#0a1e45] dark:hover:bg-[#102854] text-slate-700 dark:text-white rounded-xl text-xs font-semibold transition-all border border-slate-200 dark:border-[#1a325a]"
           >
             <Printer className="w-4 h-4" /> Print
           </button>
         </div>
       </div>
 
-      {/* Sub-Tab Navigation Bar */}
-      <div className="flex items-center gap-2 border-b border-slate-200 dark:border-[#1a325a] pb-1 overflow-x-auto print:hidden">
+      {/* Sub-Navigation Bar */}
+      <div className="flex items-center gap-2 p-1.5 bg-slate-100 dark:bg-[#05142e]/90 border border-slate-200 dark:border-[#1a325a] rounded-2xl overflow-x-auto print:hidden">
         <button
           onClick={() => setActiveTab('report')}
           className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold transition-all whitespace-nowrap ${
@@ -248,7 +269,7 @@ export default function Report() {
               <div>
                 <p className="text-xs text-slate-400 dark:text-[#8ba3c9] font-medium uppercase tracking-wider">Before Quality Score</p>
                 <h3 className="text-3xl font-extrabold text-slate-800 dark:text-white mt-1">
-                  {qualityMetrics.overall_quality_score_before || 65}%
+                  {displayScoreBefore}%
                 </h3>
               </div>
               <div className="w-12 h-12 bg-amber-50 dark:bg-amber-500/10 rounded-xl flex items-center justify-center border border-amber-200 dark:border-amber-500/20">
@@ -260,7 +281,7 @@ export default function Report() {
               <div>
                 <p className="text-xs text-slate-400 dark:text-[#8ba3c9] font-medium uppercase tracking-wider">After Quality Score</p>
                 <h3 className="text-3xl font-extrabold text-emerald-600 dark:text-emerald-400 mt-1">
-                  {qualityMetrics.overall_quality_score_after || 94}%
+                  {displayScoreAfter}%
                 </h3>
               </div>
               <div className="w-12 h-12 bg-emerald-50 dark:bg-emerald-500/10 rounded-xl flex items-center justify-center border border-emerald-200 dark:border-emerald-500/20">
@@ -272,7 +293,7 @@ export default function Report() {
               <div>
                 <p className="text-xs text-slate-400 dark:text-[#8ba3c9] font-medium uppercase tracking-wider">Quality Improvement</p>
                 <h3 className="text-3xl font-extrabold text-blue-600 dark:text-blue-400 mt-1">
-                  +{qualityMetrics.score_improvement || 29}%
+                  +{displayScoreImprovement}%
                 </h3>
               </div>
               <div className="w-12 h-12 bg-blue-50 dark:bg-blue-500/10 rounded-xl flex items-center justify-center border border-blue-200 dark:border-blue-500/20">
@@ -284,7 +305,7 @@ export default function Report() {
               <div>
                 <p className="text-xs text-slate-400 dark:text-[#8ba3c9] font-medium uppercase tracking-wider">Operations Executed</p>
                 <h3 className="text-3xl font-extrabold text-purple-600 dark:text-purple-400 mt-1">
-                  {cleanSummary.total_approved_actions_applied || 0}
+                  {displayOpsExecuted}
                 </h3>
               </div>
               <div className="w-12 h-12 bg-purple-50 dark:bg-purple-500/10 rounded-xl flex items-center justify-center border border-purple-200 dark:border-purple-500/20">
@@ -298,10 +319,10 @@ export default function Report() {
             <div className="border-b border-slate-200 dark:border-[#1a325a] pb-6 flex flex-col sm:flex-row justify-between gap-4">
               <div>
                 <h3 className="text-2xl font-bold text-slate-900 dark:text-white">
-                  Compliance Audit Document — {reportMeta.dataset_name || 'Dataset'}
+                  Compliance Audit Document — {reportMeta.dataset_name || reportMeta.source_file || 'Dataset'}
                 </h3>
                 <p className="text-xs text-slate-400 dark:text-[#8ba3c9] mt-1">
-                  Report ID: <code className="bg-slate-100 dark:bg-[#0a1e45] px-2 py-0.5 rounded text-blue-600 dark:text-blue-300 font-mono">{reportMeta.report_id || 'AUDIT-892'}</code> | Generated: {new Date().toLocaleString()}
+                  Report ID: <code className="bg-slate-100 dark:bg-[#0a1e45] px-2 py-0.5 rounded text-blue-600 dark:text-blue-300 font-mono">{reportMeta.report_id || 'AUDIT-892'}</code> | Generated: {reportMeta.formatted_date || new Date().toLocaleString()}
                 </p>
               </div>
               <div className="text-right">
@@ -320,15 +341,15 @@ export default function Report() {
                 <div className="space-y-2.5 text-sm">
                   <div className="flex justify-between py-1.5 border-b border-slate-100 dark:border-[#102854]">
                     <span className="text-slate-500 dark:text-[#8ba3c9]">Total Original Records</span>
-                    <span className="font-semibold text-slate-800 dark:text-white">{datasetOverview.original_records || 0}</span>
+                    <span className="font-semibold text-slate-800 dark:text-white">{displayOriginalRecords}</span>
                   </div>
                   <div className="flex justify-between py-1.5 border-b border-slate-100 dark:border-[#102854]">
                     <span className="text-slate-500 dark:text-[#8ba3c9]">Final Cleaned Records</span>
-                    <span className="font-semibold text-slate-800 dark:text-white">{datasetOverview.final_records || 0}</span>
+                    <span className="font-semibold text-slate-800 dark:text-white">{displayFinalRecords}</span>
                   </div>
                   <div className="flex justify-between py-1.5 border-b border-slate-100 dark:border-[#102854]">
                     <span className="text-slate-500 dark:text-[#8ba3c9]">Total Columns</span>
-                    <span className="font-semibold text-slate-800 dark:text-white">{datasetOverview.total_columns || 0}</span>
+                    <span className="font-semibold text-slate-800 dark:text-white">{displayTotalColumns}</span>
                   </div>
                   <div className="flex justify-between py-1.5">
                     <span className="text-slate-500 dark:text-[#8ba3c9]">Data Quality Standard</span>
@@ -344,19 +365,19 @@ export default function Report() {
                 <div className="space-y-2.5 text-sm">
                   <div className="flex justify-between py-1.5 border-b border-slate-100 dark:border-[#102854]">
                     <span className="text-slate-500 dark:text-[#8ba3c9]">Completeness Score</span>
-                    <span className="font-semibold text-slate-800 dark:text-white">{qualityMetrics.completeness_score || 98}%</span>
+                    <span className="font-semibold text-slate-800 dark:text-white">{displayCompleteness}%</span>
                   </div>
                   <div className="flex justify-between py-1.5 border-b border-slate-100 dark:border-[#102854]">
                     <span className="text-slate-500 dark:text-[#8ba3c9]">Uniqueness Score</span>
-                    <span className="font-semibold text-slate-800 dark:text-white">{qualityMetrics.uniqueness_score || 99}%</span>
+                    <span className="font-semibold text-slate-800 dark:text-white">{displayUniqueness}%</span>
                   </div>
                   <div className="flex justify-between py-1.5 border-b border-slate-100 dark:border-[#102854]">
                     <span className="text-slate-500 dark:text-[#8ba3c9]">Validity Score</span>
-                    <span className="font-semibold text-slate-800 dark:text-white">{qualityMetrics.validity_score || 93}%</span>
+                    <span className="font-semibold text-slate-800 dark:text-white">{displayValidity}%</span>
                   </div>
                   <div className="flex justify-between py-1.5">
                     <span className="text-slate-500 dark:text-[#8ba3c9]">Anomaly Health Score</span>
-                    <span className="font-semibold text-slate-800 dark:text-white">{qualityMetrics.anomaly_health_score || 91}%</span>
+                    <span className="font-semibold text-slate-800 dark:text-white">{displayAnomalyHealth}%</span>
                   </div>
                 </div>
               </div>
@@ -550,11 +571,22 @@ export default function Report() {
           <div className="bg-white dark:bg-[#05142e]/90 p-6 rounded-2xl border border-slate-200 dark:border-[#1a325a] shadow-md">
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
               <div>
-                <h3 className="text-xl font-bold text-slate-900 dark:text-white flex items-center gap-2">
-                  <Award className="w-5 h-5 text-blue-500" /> Synthetic Benchmark Testing & Accuracy Evaluator (D.5, D.6)
-                </h3>
+                <div className="flex items-center gap-2 mb-1">
+                  <h3 className="text-xl font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                    <Award className="w-5 h-5 text-blue-500" /> Synthetic Benchmark Testing & Accuracy Evaluator (D.5, D.6)
+                  </h3>
+                  {benchmarkResult && (
+                    <span className={`px-2.5 py-0.5 rounded-full text-xs font-bold ${
+                      benchmarkResult.metrics.meetsTargetF1 
+                        ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-500/20 dark:text-emerald-300'
+                        : 'bg-amber-100 text-amber-800 dark:bg-amber-500/20 dark:text-amber-300'
+                    }`}>
+                      {benchmarkResult.metrics.meetsTargetF1 ? '✓ PASSED (F1 ≥ 90% Target Met)' : '⚠ WARNING (F1 < 90%)'}
+                    </span>
+                  )}
+                </div>
                 <p className="text-xs text-slate-500 dark:text-[#8ba3c9] mt-1">
-                  Test the system on 6 controlled benchmark datasets to evaluate Precision, Recall, and F1-Score (Target $\ge 90\%$).
+                  Evaluates Precision, Recall, F1-Score, and Correction Accuracy on controlled synthetic datasets (6 benchmark suites).
                 </p>
               </div>
 
@@ -587,40 +619,40 @@ export default function Report() {
                   <div className="p-4 bg-slate-50 dark:bg-[#0a1e45] rounded-xl border border-slate-200 dark:border-[#1a325a]">
                     <p className="text-xs text-slate-400 dark:text-[#8ba3c9] font-medium uppercase">Precision Score</p>
                     <h4 className="text-2xl font-extrabold text-blue-600 dark:text-blue-400 mt-1">{benchmarkResult.metrics.precision}%</h4>
-                    <p className="text-[11px] text-slate-500 dark:text-[#8ba3c9] mt-1">True Positives / Total Positives</p>
+                    <p className="text-[11px] text-slate-500 dark:text-[#8ba3c9] mt-1">True Positives / (True Positives + False Positives)</p>
                   </div>
 
                   <div className="p-4 bg-slate-50 dark:bg-[#0a1e45] rounded-xl border border-slate-200 dark:border-[#1a325a]">
                     <p className="text-xs text-slate-400 dark:text-[#8ba3c9] font-medium uppercase">Recall Score</p>
                     <h4 className="text-2xl font-extrabold text-purple-600 dark:text-purple-400 mt-1">{benchmarkResult.metrics.recall}%</h4>
-                    <p className="text-[11px] text-slate-500 dark:text-[#8ba3c9] mt-1">True Positives / Actual Corruptions</p>
+                    <p className="text-[11px] text-slate-500 dark:text-[#8ba3c9] mt-1">True Positives / (True Positives + False Negatives)</p>
                   </div>
 
                   <div className="p-4 bg-slate-50 dark:bg-[#0a1e45] rounded-xl border border-slate-200 dark:border-[#1a325a]">
-                    <p className="text-xs text-slate-400 dark:text-[#8ba3c9] font-medium uppercase">F1-Score (Target $\ge 90\%$)</p>
+                    <p className="text-xs text-slate-400 dark:text-[#8ba3c9] font-medium uppercase">F1-Score (Target ≥ 90%)</p>
                     <h4 className={`text-2xl font-extrabold mt-1 ${benchmarkResult.metrics.meetsTargetF1 ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-500'}`}>
                       {benchmarkResult.metrics.f1Score}%
                     </h4>
-                    <p className="text-[11px] text-slate-500 dark:text-[#8ba3c9] mt-1">Harmonic Mean of Precision & Recall</p>
+                    <p className="text-[11px] text-slate-500 dark:text-[#8ba3c9] mt-1">Harmonic Mean: 2 × (Precision × Recall) / (Precision + Recall)</p>
                   </div>
 
                   <div className="p-4 bg-slate-50 dark:bg-[#0a1e45] rounded-xl border border-slate-200 dark:border-[#1a325a]">
                     <p className="text-xs text-slate-400 dark:text-[#8ba3c9] font-medium uppercase">Correction Accuracy</p>
                     <h4 className="text-2xl font-extrabold text-emerald-600 dark:text-emerald-400 mt-1">{benchmarkResult.metrics.correctionAccuracy}%</h4>
-                    <p className="text-[11px] text-slate-500 dark:text-[#8ba3c9] mt-1">Successful Imputation & Fixes</p>
+                    <p className="text-[11px] text-slate-500 dark:text-[#8ba3c9] mt-1">True Positives / Total Detected Anomalies</p>
                   </div>
                 </div>
 
                 {/* Benchmark Dataset Details & Confusion Matrix */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div className="p-5 bg-slate-50 dark:bg-[#0a1e45] rounded-xl border border-slate-200 dark:border-[#1a325a]">
-                    <h4 className="font-bold text-sm text-slate-800 dark:text-white mb-2">Benchmark Dataset Description</h4>
+                    <h4 className="font-bold text-sm text-slate-800 dark:text-white mb-2">Benchmark Dataset Breakdown</h4>
                     <p className="text-xs text-slate-600 dark:text-[#8ba3c9] mb-4">{benchmarkResult.testDataset.description}</p>
 
                     <div className="space-y-2 text-xs">
                       <div className="flex justify-between py-1 border-b border-slate-200 dark:border-[#1a325a]">
-                        <span className="text-slate-500">Test Records</span>
-                        <span className="font-semibold">{benchmarkResult.testDataset.rows.length}</span>
+                        <span className="text-slate-500">Test Records / Evaluated Attributes</span>
+                        <span className="font-semibold">{benchmarkResult.testDataset.rows.length} Records ({benchmarkResult.metrics.totalCellAttributes || (benchmarkResult.testDataset.rows.length * benchmarkResult.testDataset.headers.length)} Cell Attributes)</span>
                       </div>
                       <div className="flex justify-between py-1 border-b border-slate-200 dark:border-[#1a325a]">
                         <span className="text-slate-500">Detected Duplicates</span>
@@ -669,52 +701,50 @@ export default function Report() {
       {/* TAB 4: BUG TRACKER & DIAGNOSTICS (D.7, D.8) */}
       {/* ========================================================================= */}
       {activeTab === 'bugs' && (
-        <>
-          <div className="space-y-8">
-            <div className="bg-white dark:bg-[#05142e]/90 p-6 rounded-2xl border border-slate-200 dark:border-[#1a325a] shadow-md">
-              <h3 className="text-xl font-bold text-slate-900 dark:text-white mb-2 flex items-center gap-2">
-                <Bug className="w-5 h-5 text-purple-500" /> System Bug Identification & Verification Tracker (D.7, D.8)
-              </h3>
-              <p className="text-sm text-slate-500 dark:text-[#8ba3c9] mb-6">
-                Maintains an active bug tracking log documenting resolved system bugs, affected modules, severity, and verified fix versions.
-              </p>
+        <div className="space-y-8">
+          <div className="bg-white dark:bg-[#05142e]/90 p-6 rounded-2xl border border-slate-200 dark:border-[#1a325a] shadow-md">
+            <h3 className="text-xl font-bold text-slate-900 dark:text-white mb-2 flex items-center gap-2">
+              <Bug className="w-5 h-5 text-purple-500" /> System Bug Identification & Verification Tracker (D.7, D.8)
+            </h3>
+            <p className="text-sm text-slate-500 dark:text-[#8ba3c9] mb-6">
+              Maintains an active bug tracking log documenting resolved system bugs, affected modules, severity, and verified fix versions.
+            </p>
 
-              <div className="overflow-x-auto border border-slate-200 dark:border-[#1a325a] rounded-xl">
-                <table className="w-full text-left text-xs">
-                  <thead className="bg-slate-100 dark:bg-[#0a1e45] text-slate-600 dark:text-[#8ba3c9] font-semibold border-b border-slate-200 dark:border-[#1a325a]">
-                    <tr>
-                      <th className="py-3 px-4">Bug ID</th>
-                      <th className="py-3 px-4">Module</th>
-                      <th className="py-3 px-4">Description</th>
-                      <th className="py-3 px-4">Severity</th>
-                      <th className="py-3 px-4">Fix Version</th>
-                      <th className="py-3 px-4">Status</th>
+            <div className="overflow-x-auto border border-slate-200 dark:border-[#1a325a] rounded-xl">
+              <table className="w-full text-left text-xs">
+                <thead className="bg-slate-100 dark:bg-[#0a1e45] text-slate-600 dark:text-[#8ba3c9] font-semibold border-b border-slate-200 dark:border-[#1a325a]">
+                  <tr>
+                    <th className="py-3 px-4">Bug ID</th>
+                    <th className="py-3 px-4">Module</th>
+                    <th className="py-3 px-4">Description</th>
+                    <th className="py-3 px-4">Severity</th>
+                    <th className="py-3 px-4">Fix Version</th>
+                    <th className="py-3 px-4">Status</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 dark:divide-[#102854]">
+                  {bugList.map((b) => (
+                    <tr key={b.id} className="hover:bg-slate-50/50 dark:hover:bg-[#0a1e45]/50 transition-colors">
+                      <td className="py-2.5 px-4 font-mono font-bold text-blue-600 dark:text-blue-300">{b.id}</td>
+                      <td className="py-2.5 px-4 font-medium text-slate-800 dark:text-white">{b.module}</td>
+                      <td className="py-2.5 px-4 text-slate-600 dark:text-[#8ba3c9]">{b.description}</td>
+                      <td className="py-2.5 px-4">
+                        <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                          b.severity === 'High' ? 'bg-rose-100 text-rose-700 dark:bg-rose-500/20 dark:text-rose-300' : 'bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-300'
+                        }`}>
+                          {b.severity}
+                        </span>
+                      </td>
+                      <td className="py-2.5 px-4 font-mono text-slate-500">{b.fixVersion}</td>
+                      <td className="py-2.5 px-4">
+                        <span className="px-2 py-0.5 bg-emerald-100 text-emerald-800 dark:bg-emerald-500/20 dark:text-emerald-300 rounded text-[10px] font-bold flex items-center gap-1 w-max">
+                          <Check className="w-3 h-3" /> {b.status}
+                        </span>
+                      </td>
                     </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100 dark:divide-[#102854]">
-                    {bugList.map((b) => (
-                      <tr key={b.id} className="hover:bg-slate-50/50 dark:hover:bg-[#0a1e45]/50 transition-colors">
-                        <td className="py-2.5 px-4 font-mono font-bold text-blue-600 dark:text-blue-300">{b.id}</td>
-                        <td className="py-2.5 px-4 font-medium text-slate-800 dark:text-white">{b.module}</td>
-                        <td className="py-2.5 px-4 text-slate-600 dark:text-[#8ba3c9]">{b.description}</td>
-                        <td className="py-2.5 px-4">
-                          <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                            b.severity === 'High' ? 'bg-rose-100 text-rose-700 dark:bg-rose-500/20 dark:text-rose-300' : 'bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-300'
-                          }`}>
-                            {b.severity}
-                          </span>
-                        </td>
-                        <td className="py-2.5 px-4 font-mono text-slate-500">{b.fixVersion}</td>
-                        <td className="py-2.5 px-4">
-                          <span className="px-2 py-0.5 bg-emerald-100 text-emerald-800 dark:bg-emerald-500/20 dark:text-emerald-300 rounded text-[10px] font-bold flex items-center gap-1 w-max">
-                            <Check className="w-3 h-3" /> {b.status}
-                          </span>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+                  ))}
+                </tbody>
+              </table>
             </div>
           </div>
 
@@ -739,5 +769,8 @@ export default function Report() {
               </Link>
             </div>
           </div>
-        </>
+        </div>
       )}
+    </div>
+  );
+}

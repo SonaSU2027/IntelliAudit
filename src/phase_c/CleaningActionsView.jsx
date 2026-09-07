@@ -161,15 +161,9 @@ export default function CleaningActionsView() {
           <div className="flex items-center gap-2 mb-1">
             <span className="px-3 py-1 bg-indigo-100 text-indigo-700 dark:bg-indigo-500/20 dark:text-indigo-300 rounded-full text-xs font-semibold tracking-wider uppercase flex items-center gap-1.5">
               <Zap className="w-3.5 h-3.5" />
-<<<<<<< HEAD
               Human-in-the-Loop Approval
             </span>
             <span className="text-xs text-slate-400 dark:text-[#8ba3c9]">Step 6 of 8</span>
-=======
-              Phase C — User Approval Engine
-            </span>
-            <span className="text-xs text-slate-400 dark:text-[#8ba3c9]">Human-in-the-Loop</span>
->>>>>>> upstream/main
           </div>
           <h2 className="text-3xl font-bold tracking-tight text-slate-900 dark:text-white">
             Explainable Cleaning Recommendations
