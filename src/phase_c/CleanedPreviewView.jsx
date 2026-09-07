@@ -108,7 +108,11 @@ export default function CleanedPreviewView() {
           <div className="flex items-center gap-2 mb-1">
             <span className="px-3 py-1 bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300 rounded-full text-xs font-semibold tracking-wider uppercase flex items-center gap-1.5">
               <CheckCircle2 className="w-3.5 h-3.5" />
+<<<<<<< HEAD
+              Cleaned Dataset Review
+=======
               Phase C — Final Cleaned State
+>>>>>>> upstream/main
             </span>
             <span className="text-xs text-slate-400 dark:text-[#8ba3c9]">Step 7 of 8</span>
           </div>

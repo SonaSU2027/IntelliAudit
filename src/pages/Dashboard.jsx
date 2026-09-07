@@ -205,6 +205,20 @@ export default function Dashboard() {
           </div>
         </div>
       </div>
+      {/* Proceed to Next Phase CTA */}
+      <div className="mt-6 p-5 bg-gradient-to-r from-blue-600 to-indigo-600 dark:from-[#0f2d6e] dark:to-[#1a1e5e] rounded-2xl shadow-lg flex flex-col sm:flex-row items-center justify-between gap-4">
+        <div>
+          <h4 className="text-white font-bold text-base">Data Quality Scan Complete</h4>
+          <p className="text-blue-100 dark:text-blue-200 text-sm mt-0.5">Your dataset has been profiled. Proceed to detect duplicates, outliers, and rule violations next.</p>
+        </div>
+        <Link
+          to="/missing-values"
+          className="flex items-center gap-2 px-6 py-2.5 bg-white text-blue-700 hover:bg-blue-50 text-sm font-bold rounded-xl shadow-md transition-all flex-shrink-0"
+        >
+          <ArrowRight className="w-4 h-4" /> Proceed to Next Phase
+        </Link>
+      </div>
     </div>
   );
 }
+
