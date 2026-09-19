@@ -96,11 +96,27 @@ export function executeApprovedCleaning({
     return (order[a.type] || 9) - (order[b.type] || 9);
   });
 
+  // Helper to type-safely cast numeric values to clean numbers
+  const sanitizeCleanedValue = (val, targetCol) => {
+    if (val === null || val === undefined) return val;
+    const colMeta = columnMetadata.find(c => c.name === targetCol);
+    const dataType = colMeta?.dataType || '';
+    if (dataType === 'Integer' || dataType === 'Float') {
+      const sanitized = String(val).replace(/[$,]/g, '').trim();
+      const num = Number(sanitized);
+      if (!isNaN(num) && isFinite(num)) {
+        return dataType === 'Integer' ? Math.round(num) : num;
+      }
+    }
+    return val;
+  };
+
   sortedRecs.forEach((rec) => {
     const opId = `op-clean-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
-    const effectiveValue = rec.userCustomValue !== null && rec.userCustomValue !== undefined
+    const rawEffectiveValue = rec.userCustomValue !== null && rec.userCustomValue !== undefined
       ? rec.userCustomValue
       : rec.suggestedValue;
+    const effectiveValue = sanitizeCleanedValue(rawEffectiveValue, rec.column);
 
     // -----------------------------------------------------------------------
     // CASE 1: MISSING VALUE IMPUTATION (Phase A & C)

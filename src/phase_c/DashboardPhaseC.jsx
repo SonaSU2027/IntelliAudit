@@ -38,7 +38,6 @@ import {
   Activity, 
   CheckCircle2, 
   SlidersHorizontal, 
-  Download, 
   Zap, 
   Database 
 } from 'lucide-react';
@@ -48,8 +47,7 @@ export default function DashboardPhaseC() {
   const {
     recommendations,
     approvedRecommendations,
-    qualityComparison,
-    handleDownloadCSV
+    qualityComparison
   } = usePhaseC();
 
   if (!originalDataset || !originalDataset.rows || originalDataset.rows.length === 0) {
@@ -136,7 +134,7 @@ export default function DashboardPhaseC() {
 
   return (
     <div className="animate-fade-in text-slate-800 dark:text-white transition-colors duration-500 pb-16 space-y-8">
-      {/* Top Banner & Quick Links */}
+      {/* Top Banner */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <div className="flex items-center gap-2 mb-1">
@@ -153,66 +151,47 @@ export default function DashboardPhaseC() {
             Auditing file <span className="font-semibold text-slate-800 dark:text-white">{metadata?.filename}</span> ({originalDataset.rows.length.toLocaleString()} rows, {originalDataset.headers.filter(h => h !== '__row_id').length} columns)
           </p>
         </div>
-
-        <div className="flex flex-wrap items-center gap-3">
-          <Link
-            to="/cleaning-actions"
-            className="px-5 py-2.5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white text-xs font-bold rounded-xl shadow-md shadow-blue-600/20 flex items-center gap-2 transition-all hover:scale-[1.02] active:scale-[0.98]"
-          >
-            <Sparkles className="w-4 h-4" />
-            Review Recommendations ({recommendations.length})
-            <ArrowRight className="w-4 h-4" />
-          </Link>
-
-          <button
-            onClick={handleDownloadCSV}
-            className="px-4 py-2.5 bg-slate-100 dark:bg-[#0a1e45] text-slate-700 dark:text-slate-200 hover:bg-slate-200 rounded-xl text-xs font-semibold border border-slate-200 dark:border-[#1a325a] flex items-center gap-2 transition-colors"
-          >
-            <Download className="w-4 h-4" />
-            Download CSV
-          </button>
-        </div>
       </div>
 
       {/* Main Dynamic Score & Health Hero Card */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Dynamic Quality Score Circle Card (C.7) */}
-        <div className="bg-gradient-to-br from-[#0c234b] to-[#05142e] p-7 rounded-3xl border border-[#1a3f7a] shadow-xl text-white relative overflow-hidden flex flex-col justify-between">
-          <div className="absolute top-0 right-0 w-64 h-64 bg-blue-500/10 rounded-full blur-3xl pointer-events-none" />
+        <div className="p-7 rounded-[28px] border border-blue-100 dark:border-[#0e2d63] shadow-lg dark:shadow-2xl text-slate-800 dark:text-white bg-gradient-to-br from-blue-50/90 via-white to-indigo-50/70 dark:bg-none dark:bg-[#031538] relative overflow-hidden flex flex-col justify-between transition-colors">
+          <div className="absolute top-0 right-0 w-64 h-64 bg-blue-500/10 dark:bg-blue-600/10 rounded-full blur-3xl pointer-events-none" />
           
           <div className="flex items-center justify-between mb-4">
-            <span className="text-xs font-bold uppercase tracking-wider text-blue-300">
-              Dynamic Quality Score
+            <span className="text-xs font-bold uppercase tracking-wider text-blue-600 dark:text-[#3b82f6]">
+              DYNAMIC QUALITY SCORE
             </span>
-            <span className="px-3 py-1 bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 rounded-full text-xs font-extrabold flex items-center gap-1">
+            <span className="px-3.5 py-1 bg-emerald-100 border border-emerald-200 text-emerald-800 dark:bg-[#064e3b]/30 dark:border dark:border-[#059669]/40 dark:text-[#34d399] rounded-full text-xs font-bold flex items-center gap-1.5">
               <TrendingUp className="w-3.5 h-3.5" />
               +{delta.overallScore ?? 0}% Improvement
             </span>
           </div>
 
           <div className="flex items-center justify-center my-6">
-            <div className="relative flex items-center justify-center w-40 h-40 rounded-full border-8 border-blue-500/20 bg-blue-950/40 shadow-[0_0_40px_rgba(59,130,246,0.3)]">
+            <div className="relative flex items-center justify-center w-44 h-44 rounded-full border-8 border-blue-200 dark:border-[#133e87] bg-blue-50/80 dark:bg-[#020d26] dark:bg-none shadow-[0_4px_25px_rgba(59,130,246,0.15)] dark:shadow-[0_0_45px_rgba(37,99,235,0.25)]">
               {/* Glowing Inner Circle */}
               <div className="text-center">
-                <span className="text-4xl font-black tracking-tight text-white block">
+                <span className="text-4xl font-extrabold tracking-tight text-slate-900 dark:text-white block">
                   {afterScore}%
                 </span>
-                <span className="text-xs font-bold uppercase tracking-widest text-emerald-400 mt-1 block">
-                  Grade: {gradeObj.grade}
+                <span className="text-xs font-bold uppercase tracking-widest text-emerald-600 dark:text-[#34d399] mt-1.5 block">
+                  GRADE: {gradeObj.grade}
                 </span>
               </div>
             </div>
           </div>
 
-          <div className="pt-4 border-t border-blue-900/60 flex items-center justify-between text-xs">
+          <div className="pt-4 border-t border-slate-200 dark:border-[#0b2959] flex items-center justify-between text-xs">
             <div>
-              <span className="text-slate-400 block">Baseline (Before)</span>
-              <span className="font-bold text-white text-sm">{beforeScore}%</span>
+              <span className="text-slate-500 dark:text-[#7e9bbd] block">Baseline (Before)</span>
+              <span className="font-bold text-slate-900 dark:text-white text-base mt-0.5 block">{beforeScore}%</span>
             </div>
-            <ArrowRight className="w-4 h-4 text-blue-400" />
+            <ArrowRight className="w-4 h-4 text-blue-500 dark:text-[#2563eb]" />
             <div className="text-right">
-              <span className="text-slate-400 block">Post-Clean (After)</span>
-              <span className="font-bold text-emerald-400 text-sm">{afterScore}%</span>
+              <span className="text-slate-500 dark:text-[#7e9bbd] block">Post-Clean (After)</span>
+              <span className="font-bold text-emerald-600 dark:text-[#34d399] text-base mt-0.5 block">{afterScore}%</span>
             </div>
           </div>
         </div>

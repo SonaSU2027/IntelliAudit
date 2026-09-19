@@ -26,7 +26,8 @@ export function DatasetProvider({ children }) {
   
   // Profiling & Missing Detection Configuration Options
   const [profilingOptions, setProfilingOptions] = useState({
-    includeAmbiguousMarkers: false // '-' and '?' are not missing by default unless configured
+    includeAmbiguousMarkers: false, // '-' and '?' are not missing by default unless configured
+    columnCustomMarkers: {} // Optional user-defined missing tokens per column, e.g. { "Date": ["INVALID_DATE"] }
   });
 
   // Missing Value Analysis & Recommendations
@@ -70,8 +71,15 @@ export function DatasetProvider({ children }) {
     setOriginalDataset(orig);
     setWorkingDataset(work);
 
-    const activeOptions = { ...profilingOptions, ...options };
-    if (options.includeAmbiguousMarkers !== undefined) {
+    const activeOptions = {
+      ...profilingOptions,
+      ...options,
+      columnCustomMarkers: {
+        ...(profilingOptions.columnCustomMarkers || {}),
+        ...(options.columnCustomMarkers || {})
+      }
+    };
+    if (options.includeAmbiguousMarkers !== undefined || options.columnCustomMarkers !== undefined) {
       setProfilingOptions(activeOptions);
     }
 
@@ -121,23 +129,32 @@ export function DatasetProvider({ children }) {
   }, [profilingOptions]);
 
   /**
-   * Updates missing detection options (e.g. toggling ambiguous markers) and reprofiles
+   * Updates missing detection options (e.g. toggling ambiguous markers or column-specific missing markers) and reprofiles
    */
   const updateProfilingOptions = useCallback((newOptions) => {
-    const updated = { ...profilingOptions, ...newOptions };
-    setProfilingOptions(updated);
+    setProfilingOptions(prev => {
+      const updated = {
+        ...prev,
+        ...newOptions,
+        columnCustomMarkers: {
+          ...(prev.columnCustomMarkers || {}),
+          ...(newOptions.columnCustomMarkers || {})
+        }
+      };
 
-    if (workingDataset && workingDataset.headers && workingDataset.rows) {
-      const updatedProfile = computeDatasetProfile(workingDataset.headers, workingDataset.rows, metadata || {}, updated);
-      setDatasetProfile(updatedProfile);
+      if (workingDataset && workingDataset.headers && workingDataset.rows) {
+        const updatedProfile = computeDatasetProfile(workingDataset.headers, workingDataset.rows, metadata || {}, updated);
+        setDatasetProfile(updatedProfile);
 
-      if (updatedProfile && updatedProfile.columns) {
-        setColumnMetadata(updatedProfile.columns);
-        const updatedRecs = generateMissingRecommendations(updatedProfile.columns, updated);
-        setMissingRecommendations(updatedRecs);
+        if (updatedProfile && updatedProfile.columns) {
+          setColumnMetadata(updatedProfile.columns);
+          const updatedRecs = generateMissingRecommendations(updatedProfile.columns, updated);
+          setMissingRecommendations(updatedRecs);
+        }
       }
-    }
-  }, [profilingOptions, workingDataset, metadata]);
+      return updated;
+    });
+  }, [workingDataset, metadata]);
 
   /**
    * Applies an approved imputation on working_dataset with type-safety & rich audit records

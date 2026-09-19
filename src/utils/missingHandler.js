@@ -185,7 +185,7 @@ export function executeImputation(rows, column, method, customValue = '', column
 
   // Find all rows where column is missing
   updatedRows.forEach((row, idx) => {
-    if (isMissingValue(row[column], options)) {
+    if (isMissingValue(row[column], options, column)) {
       affectedIndices.push(idx);
     }
   });
@@ -215,7 +215,7 @@ export function executeImputation(rows, column, method, customValue = '', column
       };
     });
 
-    const filteredRows = updatedRows.filter(r => !isMissingValue(r[column], options));
+    const filteredRows = updatedRows.filter(r => !isMissingValue(r[column], options, column));
     return {
       updatedRows: filteredRows,
       replacementValue: '[REMOVED]',
@@ -228,42 +228,55 @@ export function executeImputation(rows, column, method, customValue = '', column
     };
   }
 
+
   const nonMissingValues = updatedRows
-    .filter(r => !isMissingValue(r[column], options))
+    .filter(r => !isMissingValue(r[column], options, column))
     .map(r => r[column]);
 
-  if (method === 'Forward Fill (ffill)' || method === 'Forward Fill' || method === 'ffill') {
+  const isForwardFill = method === 'Forward Fill (ffill)' || method === 'Forward Fill' || method === 'ffill';
+  const isBackwardFill = method === 'Backward Fill (bfill)' || method === 'Backward Fill' || method === 'bfill';
+  const isSequentialFill = isForwardFill || isBackwardFill;
+
+  if (isForwardFill) {
     let lastValid = null;
-    updatedRows.forEach((row) => {
-      if (!isMissingValue(row[column], options)) {
-        lastValid = row[column];
+    // Pass 1: Forward fill using the previous non-missing valid value
+    for (let i = 0; i < updatedRows.length; i++) {
+      const val = updatedRows[i][column];
+      if (!isMissingValue(val, options, column)) {
+        lastValid = val;
       } else if (lastValid !== null) {
-        row[column] = lastValid;
-      }
-    });
-    const firstValid = nonMissingValues[0] || '1970-01-01';
-    updatedRows.forEach((row) => {
-      if (isMissingValue(row[column], options)) {
-        row[column] = firstValid;
-      }
-    });
-    replacementValue = '(Forward Filled)';
-  } else if (method === 'Backward Fill (bfill)' || method === 'Backward Fill' || method === 'bfill') {
-    let nextValid = null;
-    for (let idx = updatedRows.length - 1; idx >= 0; idx--) {
-      if (!isMissingValue(updatedRows[idx][column], options)) {
-        nextValid = updatedRows[idx][column];
-      } else if (nextValid !== null) {
-        updatedRows[idx][column] = nextValid;
+        updatedRows[i][column] = lastValid;
       }
     }
-    const lastValid = nonMissingValues[nonMissingValues.length - 1] || '1970-01-01';
-    updatedRows.forEach((row) => {
-      if (isMissingValue(row[column], options)) {
-        row[column] = lastValid;
+    // Pass 2: If the dataset starts with missing values, backfill them with the first available valid value
+    const firstValid = nonMissingValues[0] || '1970-01-01';
+    for (let i = 0; i < updatedRows.length; i++) {
+      if (isMissingValue(updatedRows[i][column], options, column)) {
+        updatedRows[i][column] = firstValid;
       }
-    });
-    replacementValue = '(Backward Filled)';
+    }
+    const sampleVal = updatedRows[affectedIndices[0]]?.[column] || firstValid;
+    replacementValue = `Forward Filled (e.g. ${sampleVal})`;
+  } else if (isBackwardFill) {
+    let nextValid = null;
+    // Pass 1: Backward fill using the next upcoming valid value
+    for (let i = updatedRows.length - 1; i >= 0; i--) {
+      const val = updatedRows[i][column];
+      if (!isMissingValue(val, options, column)) {
+        nextValid = val;
+      } else if (nextValid !== null) {
+        updatedRows[i][column] = nextValid;
+      }
+    }
+    // Pass 2: If the dataset ends with missing values, fill them with the last available valid value
+    const lastValid = nonMissingValues[nonMissingValues.length - 1] || '1970-01-01';
+    for (let i = updatedRows.length - 1; i >= 0; i--) {
+      if (isMissingValue(updatedRows[i][column], options, column)) {
+        updatedRows[i][column] = lastValid;
+      }
+    }
+    const sampleVal = updatedRows[affectedIndices[0]]?.[column] || lastValid;
+    replacementValue = `Backward Filled (e.g. ${sampleVal})`;
   } else if (method === 'Median Date') {
     const timestamps = nonMissingValues
       .map(v => Date.parse(v))
@@ -280,13 +293,13 @@ export function executeImputation(rows, column, method, customValue = '', column
       replacementValue = '1970-01-01';
     }
   } else if (method === 'Mean') {
-    const stats = computeNumericStats(nonMissingValues, options);
+    const stats = computeNumericStats(nonMissingValues, options, column);
     replacementValue = stats.mean;
   } else if (method === 'Median') {
-    const stats = computeNumericStats(nonMissingValues, options);
+    const stats = computeNumericStats(nonMissingValues, options, column);
     replacementValue = stats.median;
   } else if (method === 'Mode') {
-    const stats = computeCategoricalStats(nonMissingValues, options);
+    const stats = computeCategoricalStats(nonMissingValues, options, column);
     replacementValue = stats.mode;
   } else if (method === 'Custom Value') {
     if (columnType) {
@@ -299,23 +312,25 @@ export function executeImputation(rows, column, method, customValue = '', column
       replacementValue = customValue;
     }
   } else {
-    const stats = computeNumericStats(nonMissingValues, options);
+    const stats = computeNumericStats(nonMissingValues, options, column);
     replacementValue = stats.count > 0 ? stats.median : 'Unknown';
   }
 
-  // Collect affected rows with stable rowId, originalValue, and newValue
+  // Apply replacement for static value methods (Mean, Median, Mode, Custom Value, Median Date)
+  if (!isSequentialFill) {
+    affectedIndices.forEach(idx => {
+      updatedRows[idx][column] = replacementValue;
+    });
+  }
+
+  // Collect affected rows with stable rowId, originalValue, and the exact newValue
   const affectedRows = affectedIndices.map(idx => {
     const r = updatedRows[idx];
     return {
       rowId: r.__row_id !== undefined ? r.__row_id : idx + 1,
-      originalValue: r[column],
-      newValue: replacementValue
+      originalValue: rows[idx][column],
+      newValue: updatedRows[idx][column]
     };
-  });
-
-  // Apply replacement
-  affectedIndices.forEach(idx => {
-    updatedRows[idx][column] = replacementValue;
   });
 
   return {

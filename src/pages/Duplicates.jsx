@@ -4,7 +4,8 @@ import {
 } from 'recharts';
 import {
   AlertTriangle, Copy, Activity, CheckCircle2,
-  Search, Sparkles, ListTodo, Layers, Fingerprint
+  Search, Sparkles, ListTodo, Layers, Fingerprint,
+  X, ArrowRightLeft, Check, AlertCircle, Info, Eye
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { useDataset } from '../contexts/DatasetContext';
@@ -15,6 +16,7 @@ export default function Duplicates() {
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analysisComplete, setAnalysisComplete] = useState(false);
   const [activeTab, setActiveTab] = useState('duplicates');
+  const [selectedRowForModal, setSelectedRowForModal] = useState(null);
 
   const [chartData, setChartData] = useState([]);
   const [recommendations, setRecommendations] = useState([]);
@@ -54,66 +56,87 @@ export default function Duplicates() {
 
       /*
        * Convert detection evidence into rows that the
-       * existing preview table can display.
+       * existing preview table can display with full comparison context.
        */
       const duplicatePreview = [
         ...duplicate_results,
         ...fuzzy_duplicate_results
       ]
         .slice(0, 50)
-        .map((item) => ({
-          ...rows[item.row],
-          id: item.row,
-          _issue: item.issueType,
-          _method: item.detectionMethod,
-          _severity: item.severity,
-          _confidence: item.confidence
-        }));
+        .map((item) => {
+          const targetIndex = item.duplicateOf !== undefined ? item.duplicateOf : item.similarTo;
+          const targetRow = targetIndex !== undefined && rows[targetIndex] ? rows[targetIndex] : null;
+          return {
+            ...rows[item.row],
+            id: item.row,
+            _issue: item.issueType,
+            _method: item.detectionMethod,
+            _severity: item.severity,
+            _confidence: item.confidence,
+            _reason: item.reason,
+            _recommendedAction: item.recommendedAction,
+            _targetIndex: targetIndex,
+            _targetRow: targetRow,
+            _similarity: item.similarity
+          };
+        });
 
       // Group anomaly evidence by dataset row so the same row
-// is shown only once even when multiple detectors flag it.
-const anomalyMap = new Map();
+      // is shown only once even when multiple detectors flag it.
+      const anomalyMap = new Map();
 
-anomaly_results.forEach((item) => {
-  if (!anomalyMap.has(item.row)) {
-    anomalyMap.set(item.row, {
-      ...rows[item.row],
-      id: item.row,
-      _issue: item.issueType,
-      _methods: [],
-      _headers: [],
-      _severity: item.severity,
-      _confidence: item.confidence
-    });
-  }
+      anomaly_results.forEach((item) => {
+        if (!anomalyMap.has(item.row)) {
+          anomalyMap.set(item.row, {
+            ...rows[item.row],
+            id: item.row,
+            _issue: item.issueType,
+            _methods: [],
+            _headers: [],
+            _details: [],
+            _severity: item.severity,
+            _confidence: item.confidence
+          });
+        }
 
-  const existing = anomalyMap.get(item.row);
+        const existing = anomalyMap.get(item.row);
 
-  if (item.detectionMethod && !existing._methods.includes(item.detectionMethod)) {
-    existing._methods.push(item.detectionMethod);
-  }
+        if (item.detectionMethod && !existing._methods.includes(item.detectionMethod)) {
+          existing._methods.push(item.detectionMethod);
+        }
 
-  if (item.column && !existing._headers.includes(item.column)) {
-    existing._headers.push(item.column);
-  }
+        if (item.column && !existing._headers.includes(item.column)) {
+          existing._headers.push(item.column);
+        }
 
-  // Keep the highest severity/confidence evidence available.
-  if (item.severity === 'High') {
-    existing._severity = 'High';
-  }
+        existing._details.push({
+          column: item.column,
+          issueType: item.issueType,
+          method: item.detectionMethod,
+          reason: item.reason,
+          recommendedAction: item.recommendedAction,
+          severity: item.severity,
+          confidence: item.confidence,
+          value: item.originalValue ?? item.value
+        });
 
-  if (
-    typeof item.confidence === 'number' &&
-    (
-      typeof existing._confidence !== 'number' ||
-      item.confidence > existing._confidence
-    )
-  ) {
-    existing._confidence = item.confidence;
-  }
-});
+        // Keep the highest severity/confidence evidence available.
+        if (item.severity === 'High') {
+          existing._severity = 'High';
+        }
 
-const anomalyPreview = Array.from(anomalyMap.values()).slice(0, 50);
+        if (
+          typeof item.confidence === 'number' &&
+          (
+            typeof existing._confidence !== 'number' ||
+            item.confidence > existing._confidence
+          )
+        ) {
+          existing._confidence = item.confidence;
+        }
+      });
+
+      const anomalyPreview = Array.from(anomalyMap.values()).slice(0, 50);
 
       setDuplicateRows(duplicatePreview);
       setAnomalyRows(anomalyPreview);
@@ -504,23 +527,28 @@ const anomalyPreview = Array.from(anomalyMap.values()).slice(0, 50);
           {/* Preview Table */}
           <div className="bg-white dark:bg-[#05142e]/80 backdrop-blur-sm p-6 rounded-2xl border border-slate-200 dark:border-[#1a325a] shadow-sm">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-6 gap-4">
-              <h3 className="text-lg font-semibold text-slate-800 dark:text-white flex items-center gap-2">
-                <Search className="w-5 h-5 text-indigo-500" />
-                Issue Preview Viewer
-              </h3>
+              <div>
+                <h3 className="text-lg font-semibold text-slate-800 dark:text-white flex items-center gap-2">
+                  <Search className="w-5 h-5 text-indigo-500" />
+                  Issue Preview Viewer
+                </h3>
+                <p className="text-xs text-slate-400 mt-1">
+                  Click on any row to open the complete side-by-side attribute comparison.
+                </p>
+              </div>
 
               <div className="flex bg-slate-100 dark:bg-[#0a1f44] p-1 rounded-lg border border-slate-200 dark:border-[#1a325a]">
                 <button
-                  onClick={() => setActiveTab('duplicates')}
+                  onClick={() => { setActiveTab('duplicates'); setSelectedRowForModal(null); }}
                   className={`px-4 py-1.5 text-sm font-medium rounded-md transition-colors ${activeTab === 'duplicates' ? 'bg-white dark:bg-[#1a325a] text-indigo-600 dark:text-indigo-400 shadow-sm' : 'text-slate-500 dark:text-[#8ba3c9] hover:text-slate-700 dark:hover:text-white'}`}
                 >
-                  Duplicates
+                  Duplicates ({duplicateRows.length})
                 </button>
                 <button
-                  onClick={() => setActiveTab('anomalies')}
+                  onClick={() => { setActiveTab('anomalies'); setSelectedRowForModal(null); }}
                   className={`px-4 py-1.5 text-sm font-medium rounded-md transition-colors ${activeTab === 'anomalies' ? 'bg-white dark:bg-[#1a325a] text-rose-600 dark:text-rose-400 shadow-sm' : 'text-slate-500 dark:text-[#8ba3c9] hover:text-slate-700 dark:hover:text-white'}`}
                 >
-                  Anomalies
+                  Anomalies ({anomalyRows.length})
                 </button>
               </div>
             </div>
@@ -530,27 +558,65 @@ const anomalyPreview = Array.from(anomalyMap.values()).slice(0, 50);
                 <thead className="text-xs text-slate-700 uppercase bg-slate-50 dark:bg-[#0a1f44] dark:text-slate-300">
                   <tr>
                     <th className="px-4 py-3 rounded-l-lg">Row ID</th>
-                    {dataset?.headers?.slice(0, 4).map((h, i) => (
-                      <th key={i} className={`px-4 py-3 ${i === 3 ? 'rounded-r-lg' : ''}`}>{h}</th>
+                    {dataset?.headers?.filter(h => h !== '__row_id').slice(0, 4).map((h, i) => (
+                      <th key={i} className="px-4 py-3">{h}</th>
                     ))}
+                    <th className="px-4 py-3">Detection Flag</th>
+                    <th className="px-4 py-3 rounded-r-lg text-right">Action</th>
                   </tr>
                 </thead>
                 <tbody>
                   {(activeTab === 'duplicates' ? duplicateRows : anomalyRows).length > 0 ? (activeTab === 'duplicates' ? duplicateRows : anomalyRows).map((row, idx) => (
-                    <tr key={idx} className="border-b border-slate-100 dark:border-[#1a325a] hover:bg-slate-50 dark:hover:bg-[#0a1f44]/50 transition-colors">
-                      <td className="px-4 py-3 font-medium text-slate-900 dark:text-white">#{row.id}</td>
-                      {dataset?.headers?.slice(0, 4).map((h, i) => (
+                    <tr 
+                      key={idx} 
+                      onClick={() => setSelectedRowForModal(row)}
+                      className="border-b border-slate-100 dark:border-[#1a325a] hover:bg-indigo-50/60 dark:hover:bg-[#0a1f44] cursor-pointer transition-colors group"
+                      title="Click to view full side-by-side comparison"
+                    >
+                      <td className="px-4 py-3 font-semibold text-slate-900 dark:text-white flex items-center gap-1.5">
+                        <span className="font-mono text-indigo-600 dark:text-indigo-400 font-bold">#{row.id}</span>
+                      </td>
+                      {dataset?.headers?.filter(h => h !== '__row_id').slice(0, 4).map((h, i) => (
                         <td key={i} className="px-4 py-3">
-                          {row[h]}
-                          {activeTab === 'anomalies' && row._header === h && (
-                            <span className="ml-2 text-[10px] bg-rose-100 text-rose-600 px-1 rounded">Outlier</span>
-                          )}
+                          <span className="text-slate-800 dark:text-slate-200">{String(row[h] ?? '') || <span className="text-slate-400 italic">empty</span>}</span>
                         </td>
                       ))}
+                      <td className="px-4 py-3">
+                        {activeTab === 'duplicates' ? (
+                          <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold ${
+                            row._issue === 'Exact Duplicate'
+                              ? 'bg-amber-100 text-amber-800 dark:bg-amber-500/20 dark:text-amber-300 border border-amber-300 dark:border-amber-500/30'
+                              : 'bg-purple-100 text-purple-800 dark:bg-purple-500/20 dark:text-purple-300 border border-purple-300 dark:border-purple-500/30'
+                          }`}>
+                            <Copy className="w-3 h-3" />
+                            {row._issue || 'Duplicate'}
+                            {row._targetIndex !== undefined && (
+                              <span className="opacity-80 font-normal">➔ #{row._targetIndex}</span>
+                            )}
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-rose-100 text-rose-800 dark:bg-rose-500/20 dark:text-rose-300 border border-rose-300 dark:border-rose-500/30">
+                            <AlertTriangle className="w-3 h-3" />
+                            {row._details?.length || 1} Outlier{(row._details?.length || 1) > 1 ? 's' : ''}
+                          </span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-right">
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setSelectedRowForModal(row);
+                          }}
+                          className="px-3 py-1 bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-500/10 dark:hover:bg-indigo-500/20 text-indigo-600 dark:text-indigo-400 text-xs font-bold rounded-lg border border-indigo-200 dark:border-indigo-500/30 inline-flex items-center gap-1.5 transition-all group-hover:scale-105"
+                        >
+                          <Eye className="w-3.5 h-3.5" />
+                          Compare
+                        </button>
+                      </td>
                     </tr>
                   )) : (
                     <tr>
-                      <td colSpan={5} className="px-4 py-8 text-center text-slate-400">
+                      <td colSpan={7} className="px-4 py-8 text-center text-slate-400">
                         No {activeTab} detected.
                       </td>
                     </tr>
@@ -559,16 +625,297 @@ const anomalyPreview = Array.from(anomalyMap.values()).slice(0, 50);
               </table>
             </div>
             {activeTab === 'duplicates' && duplicateRows.length > 0 && (
-              <p className="text-xs text-amber-600 dark:text-amber-400 mt-4 flex items-center gap-1">
-                <AlertTriangle className="w-3 h-3" /> Note: These rows are exactly identical to other rows in your dataset.
+              <p className="text-xs text-amber-600 dark:text-amber-400 mt-4 flex items-center gap-1.5">
+                <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0" />
+                <span><strong>Tip:</strong> Click on any row to open the complete side-by-side comparison popup and see identical values or discrepancies.</span>
               </p>
             )}
             {activeTab === 'anomalies' && anomalyRows.length > 0 && (
-              <p className="text-xs text-rose-600 dark:text-rose-400 mt-4 flex items-center gap-1">
-                <AlertTriangle className="w-3 h-3" /> Note: These rows were flagged by one or more statistical or multivariate anomaly detection methods. Review the evidence before taking action.
+              <p className="text-xs text-rose-600 dark:text-rose-400 mt-4 flex items-center gap-1.5">
+                <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0" />
+                <span><strong>Tip:</strong> Click on any row to inspect all statistical anomalies, bounds, and rule violations flagged for that record.</span>
               </p>
             )}
           </div>
+
+          {/* ========================================================================= */}
+          {/* Dynamic Side-by-Side Comparison Modal Popup */}
+          {/* ========================================================================= */}
+          {selectedRowForModal && (
+            <div 
+              className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 bg-slate-950/75 backdrop-blur-sm animate-fade-in"
+              onClick={() => setSelectedRowForModal(null)}
+            >
+              <div 
+                className="bg-white dark:bg-[#07193b] border border-slate-200 dark:border-[#1a3f7a] rounded-3xl shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col overflow-hidden text-slate-800 dark:text-white transition-all transform animate-scale-in"
+                onClick={(e) => e.stopPropagation()}
+              >
+                {/* Modal Header */}
+                <div className="flex items-center justify-between p-6 border-b border-slate-100 dark:border-[#1a325a] bg-slate-50/70 dark:bg-[#05142e]/80">
+                  <div className="flex items-center gap-3.5">
+                    <div className="p-3 rounded-2xl bg-indigo-50 dark:bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-100 dark:border-indigo-500/20 shadow-sm">
+                      <ArrowRightLeft className="w-6 h-6" />
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2.5">
+                        <h3 className="text-xl font-extrabold tracking-tight text-slate-900 dark:text-white">
+                          {activeTab === 'duplicates'
+                            ? `${selectedRowForModal._issue || 'Duplicate'} Side-by-Side Comparison`
+                            : 'Anomaly Diagnostic Inspector'}
+                        </h3>
+                        <span className={`px-2.5 py-0.5 rounded-full text-xs font-extrabold uppercase tracking-wider ${
+                          selectedRowForModal._severity === 'High' 
+                            ? 'bg-rose-100 text-rose-700 dark:bg-rose-500/20 dark:text-rose-300 border border-rose-200 dark:border-rose-500/30' 
+                            : 'bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-300 border border-amber-200 dark:border-amber-500/30'
+                        }`}>
+                          {selectedRowForModal._severity || 'Detected'}
+                        </span>
+                      </div>
+                      <p className="text-xs text-slate-500 dark:text-[#8ba3c9] mt-0.5 font-normal">
+                        {activeTab === 'duplicates' 
+                          ? `Comparing Flagged Row #${selectedRowForModal.id} with Matched Original Row #${selectedRowForModal._targetIndex ?? '?'}`
+                          : `Diagnosing detected anomalies for Record #${selectedRowForModal.id}`}
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Close 'X' Button */}
+                  <button
+                    onClick={() => setSelectedRowForModal(null)}
+                    className="p-2.5 rounded-xl text-slate-400 hover:text-slate-700 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-[#0e2755] transition-colors border border-transparent hover:border-slate-200 dark:hover:border-[#1a325a]"
+                    title="Close comparison modal"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+
+                {/* Modal Body - Scrollable */}
+                <div className="p-6 overflow-y-auto flex-1 space-y-6">
+                  
+                  {/* Top Insight Card */}
+                  <div className={`p-4 rounded-2xl border flex items-start gap-3.5 ${
+                    activeTab === 'duplicates'
+                      ? 'bg-indigo-50/50 dark:bg-[#0a1e45]/50 border-indigo-100 dark:border-indigo-500/20 text-indigo-900 dark:text-indigo-200'
+                      : 'bg-rose-50/50 dark:bg-[#2a0f1b]/50 border-rose-100 dark:border-rose-500/20 text-rose-900 dark:text-rose-200'
+                  }`}>
+                    <Info className="w-5 h-5 flex-shrink-0 mt-0.5 text-indigo-500 dark:text-indigo-400" />
+                    <div className="text-xs space-y-1">
+                      <p className="font-semibold text-sm">
+                        {activeTab === 'duplicates'
+                          ? `Detection Method: ${selectedRowForModal._method || 'Exact Match'} (Confidence: ${(Number(selectedRowForModal._confidence || 1) * 100).toFixed(1)}%)`
+                          : `Identified by: ${(selectedRowForModal._methods || ['Anomaly Engine']).join(', ')}`}
+                      </p>
+                      <p className="opacity-90 leading-relaxed">
+                        {selectedRowForModal._reason || 'This row has identical or highly similar attributes to another record in the dataset.'}
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* For DUPLICATES: Complete Attribute-by-Attribute Comparison Table */}
+                  {activeTab === 'duplicates' && (
+                    <div className="space-y-4">
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="p-4 rounded-2xl bg-amber-50/60 dark:bg-[#1a253a] border border-amber-200/60 dark:border-amber-500/30">
+                          <span className="text-[11px] font-bold uppercase tracking-wider text-amber-700 dark:text-amber-400">
+                            Flagged Duplicate Record
+                          </span>
+                          <h4 className="text-lg font-bold text-slate-900 dark:text-white mt-0.5">
+                            Row #{selectedRowForModal.id}
+                          </h4>
+                        </div>
+
+                        <div className="p-4 rounded-2xl bg-blue-50/60 dark:bg-[#0c244d] border border-blue-200/60 dark:border-blue-500/30">
+                          <span className="text-[11px] font-bold uppercase tracking-wider text-blue-700 dark:text-blue-400">
+                            Matched Original Record
+                          </span>
+                          <h4 className="text-lg font-bold text-slate-900 dark:text-white mt-0.5">
+                            Row #{selectedRowForModal._targetIndex ?? '?'}
+                          </h4>
+                        </div>
+                      </div>
+
+                      {/* Detailed Diff Table */}
+                      <div className="rounded-2xl border border-slate-200 dark:border-[#1a325a] overflow-hidden">
+                        <table className="w-full text-left text-xs">
+                          <thead className="bg-slate-50 dark:bg-[#0a1e45] text-slate-600 dark:text-slate-300 uppercase font-bold border-b border-slate-200 dark:border-[#1a325a]">
+                            <tr>
+                              <th className="px-4 py-3 w-1/4">Column / Attribute</th>
+                              <th className="px-4 py-3 w-1/3 bg-amber-50/40 dark:bg-amber-950/20 text-amber-900 dark:text-amber-300">
+                                Duplicate Row (#{selectedRowForModal.id})
+                              </th>
+                              <th className="px-4 py-3 w-1/3 bg-blue-50/40 dark:bg-blue-950/20 text-blue-900 dark:text-blue-300">
+                                Matched Original (#{selectedRowForModal._targetIndex ?? '?'})
+                              </th>
+                              <th className="px-4 py-3 text-right">Comparison</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-100 dark:divide-[#1a325a]">
+                            {dataset?.headers?.filter(h => h !== '__row_id').map((header) => {
+                              const dupVal = String(selectedRowForModal[header] ?? '');
+                              const origVal = selectedRowForModal._targetRow 
+                                ? String(selectedRowForModal._targetRow[header] ?? '') 
+                                : '';
+                              
+                              const isExact = dupVal.trim().toLowerCase() === origVal.trim().toLowerCase();
+                              const isIdCol = header.toLowerCase() === 'id' || header.toLowerCase().endsWith('_id');
+
+                              return (
+                                <tr 
+                                  key={header}
+                                  className={!isExact && !isIdCol 
+                                    ? 'bg-amber-50/70 dark:bg-amber-500/10' 
+                                    : 'hover:bg-slate-50/50 dark:hover:bg-[#0a1f44]/40'}
+                                >
+                                  <td className="px-4 py-3 font-semibold text-slate-800 dark:text-slate-200">
+                                    {header}
+                                    {isIdCol && (
+                                      <span className="ml-1.5 text-[10px] px-1.5 py-0.5 rounded bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300 font-normal">
+                                        Key
+                                      </span>
+                                    )}
+                                  </td>
+                                  <td className={`px-4 py-3 font-mono ${
+                                    !isExact && !isIdCol 
+                                      ? 'font-bold text-amber-700 dark:text-amber-300' 
+                                      : 'text-slate-700 dark:text-slate-300'
+                                  }`}>
+                                    {dupVal || <span className="text-slate-400 italic">null / empty</span>}
+                                  </td>
+                                  <td className={`px-4 py-3 font-mono ${
+                                    !isExact && !isIdCol 
+                                      ? 'font-bold text-blue-700 dark:text-blue-300' 
+                                      : 'text-slate-700 dark:text-slate-300'
+                                  }`}>
+                                    {origVal || <span className="text-slate-400 italic">null / empty</span>}
+                                  </td>
+                                  <td className="px-4 py-3 text-right">
+                                    {isIdCol ? (
+                                      <span className="inline-flex items-center gap-1 text-[11px] font-medium text-slate-400">
+                                        Unique Key
+                                      </span>
+                                    ) : isExact ? (
+                                      <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300">
+                                        <Check className="w-3 h-3" /> Identical
+                                      </span>
+                                    ) : (
+                                      <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-300">
+                                        <AlertCircle className="w-3 h-3" /> Formatted / Diff
+                                      </span>
+                                    )}
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* For ANOMALIES: Diagnostic Outlier Evidence & Full Values Table */}
+                  {activeTab === 'anomalies' && (
+                    <div className="space-y-5">
+                      {/* Detected Anomaly Cards */}
+                      <div className="space-y-3">
+                        <h4 className="text-sm font-bold text-slate-800 dark:text-white uppercase tracking-wider">
+                          Detected Outliers & Rule Breaches
+                        </h4>
+                        {(selectedRowForModal._details || []).map((detail, dIdx) => (
+                          <div 
+                            key={dIdx} 
+                            className="p-4 rounded-2xl border border-rose-200 dark:border-rose-500/30 bg-rose-50/40 dark:bg-rose-950/20 space-y-2 text-xs"
+                          >
+                            <div className="flex items-center justify-between">
+                              <span className="font-bold text-rose-700 dark:text-rose-300 text-sm flex items-center gap-1.5">
+                                <AlertTriangle className="w-4 h-4" />
+                                {detail.column ? `Column: "${detail.column}"` : 'Multivariate Row Outlier'}
+                              </span>
+                              <span className="px-2 py-0.5 bg-rose-100 dark:bg-rose-500/20 text-rose-800 dark:text-rose-300 rounded font-mono font-bold">
+                                {detail.method}
+                              </span>
+                            </div>
+                            <p className="text-slate-700 dark:text-slate-300 leading-relaxed">
+                              {detail.reason}
+                            </p>
+                            {detail.recommendedAction && (
+                              <p className="text-indigo-600 dark:text-indigo-400 font-medium">
+                                ➔ <strong>Action:</strong> {detail.recommendedAction}
+                              </p>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+
+                      {/* Complete Row Values Table */}
+                      <div className="space-y-2">
+                        <h4 className="text-sm font-bold text-slate-800 dark:text-white uppercase tracking-wider">
+                          Complete Row Attribute Snapshot
+                        </h4>
+                        <div className="rounded-2xl border border-slate-200 dark:border-[#1a325a] overflow-hidden">
+                          <table className="w-full text-left text-xs">
+                            <thead className="bg-slate-50 dark:bg-[#0a1f44] text-slate-600 dark:text-slate-300 uppercase font-bold border-b border-slate-200 dark:border-[#1a325a]">
+                              <tr>
+                                <th className="px-4 py-2.5">Attribute</th>
+                                <th className="px-4 py-2.5">Recorded Value</th>
+                                <th className="px-4 py-2.5 text-right">Status</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-100 dark:divide-[#1a325a]">
+                              {dataset?.headers?.filter(h => h !== '__row_id').map((header) => {
+                                const val = String(selectedRowForModal[header] ?? '');
+                                const isOutlier = (selectedRowForModal._headers || []).includes(header);
+
+                                return (
+                                  <tr 
+                                    key={header}
+                                    className={isOutlier 
+                                      ? 'bg-rose-50/80 dark:bg-rose-500/15' 
+                                      : 'hover:bg-slate-50/50 dark:hover:bg-[#0a1f44]/40'}
+                                  >
+                                    <td className="px-4 py-2.5 font-semibold text-slate-800 dark:text-slate-200">
+                                      {header}
+                                    </td>
+                                    <td className={`px-4 py-2.5 font-mono ${
+                                      isOutlier ? 'font-bold text-rose-600 dark:text-rose-400' : 'text-slate-700 dark:text-slate-300'
+                                    }`}>
+                                      {val || <span className="text-slate-400 italic">null / empty</span>}
+                                    </td>
+                                    <td className="px-4 py-2.5 text-right">
+                                      {isOutlier ? (
+                                        <span className="px-2 py-0.5 bg-rose-100 text-rose-700 dark:bg-rose-500/20 dark:text-rose-300 rounded-full font-bold text-[10px]">
+                                          Outlier Flagged
+                                        </span>
+                                      ) : (
+                                        <span className="text-slate-400 text-[11px]">Valid</span>
+                                      )}
+                                    </td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                </div>
+
+                {/* Modal Footer */}
+                <div className="p-4 px-6 border-t border-slate-100 dark:border-[#1a325a] bg-slate-50/70 dark:bg-[#05142e]/80 flex items-center justify-between">
+                  <span className="text-xs text-slate-400">
+                    Press <kbd className="px-1.5 py-0.5 bg-slate-200 dark:bg-slate-700 rounded text-[10px] font-mono">ESC</kbd> or click outside to dismiss
+                  </span>
+                  <button
+                    onClick={() => setSelectedRowForModal(null)}
+                    className="px-5 py-2 bg-slate-200 hover:bg-slate-300 dark:bg-[#1a325a] dark:hover:bg-[#234275] text-slate-800 dark:text-white rounded-xl text-xs font-bold transition-all"
+                  >
+                    Close Comparison
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
 
         </div>
       )}

@@ -17,7 +17,8 @@ import {
   downloadCleanedCSV, 
   downloadAuditReportJSON, 
   downloadAuditReportMarkdown,
-  downloadAuditReportTXT 
+  downloadAuditReportTXT,
+  downloadAnalyticalReportPDF
 } from './auditReportGenerator.js';
 import { runDetectionEngine } from '../utils/detectionEngine.js';
 
@@ -302,6 +303,10 @@ export function PhaseCProvider({ children }) {
     downloadAuditReportTXT(auditReportData, metadata?.filename || 'dataset.csv');
   }, [auditReportData, metadata]);
 
+  const handleDownloadReportPDF = useCallback((validationResults = null, benchmarkResult = null) => {
+    downloadAnalyticalReportPDF(auditReportData, validationResults, benchmarkResult, metadata?.filename || 'dataset.csv');
+  }, [auditReportData, metadata]);
+
   const value = {
     // Recommendations (C.1, C.2, C.3)
     recommendations,
@@ -343,7 +348,8 @@ export function PhaseCProvider({ children }) {
     handleDownloadCSV,
     handleDownloadReportJSON,
     handleDownloadReportMD,
-    handleDownloadReportTXT
+    handleDownloadReportTXT,
+    handleDownloadReportPDF
   };
 
   return (

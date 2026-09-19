@@ -27,8 +27,8 @@ export default function AuditReportView() {
   const {
     auditReportData,
     handleDownloadCSV,
-    handleDownloadReportJSON,
-    handleDownloadReportMD
+    handleDownloadReportTXT,
+    handleDownloadReportPDF
   } = usePhaseC();
 
   const [searchQuery, setSearchQuery] = useState('');
@@ -72,10 +72,6 @@ export default function AuditReportView() {
     return true;
   });
 
-  const handlePrint = () => {
-    window.print();
-  };
-
   return (
     <div className="animate-fade-in max-w-6xl mx-auto text-slate-800 dark:text-white transition-colors duration-500 pb-16 space-y-8">
       {/* Top Header & Export Controls */}
@@ -96,38 +92,33 @@ export default function AuditReportView() {
           </p>
         </div>
 
-        {/* Download Buttons */}
+        {/* 3 Download Buttons: Cleaned CSV, Audit Report (.txt), Analytical Report (.pdf) */}
         <div className="flex flex-wrap items-center gap-2.5">
           <button
             onClick={handleDownloadCSV}
             className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-xl shadow-md shadow-emerald-600/20 flex items-center gap-2 transition-all hover:scale-[1.02] active:scale-[0.98]"
+            title="Download cleaned dataset in CSV format"
           >
             <Download className="w-4 h-4" />
-            Download Cleaned CSV
+            Download Cleaned CSV (.csv)
           </button>
 
           <button
-            onClick={handleDownloadReportJSON}
-            className="px-3.5 py-2.5 bg-slate-100 dark:bg-[#0a1e45] text-slate-700 dark:text-slate-200 hover:bg-slate-200 rounded-xl text-xs font-semibold border border-slate-200 dark:border-[#1a325a] flex items-center gap-1.5 transition-colors"
+            onClick={handleDownloadReportTXT}
+            className="px-4 py-2.5 bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold rounded-xl shadow-md shadow-purple-600/20 flex items-center gap-2 transition-all hover:scale-[1.02] active:scale-[0.98]"
+            title="Download plain text audit report"
           >
-            <FileText className="w-4 h-4 text-blue-500" />
-            Export JSON
+            <FileText className="w-4 h-4" />
+            Audit Report (.txt)
           </button>
 
           <button
-            onClick={handleDownloadReportMD}
-            className="px-3.5 py-2.5 bg-slate-100 dark:bg-[#0a1e45] text-slate-700 dark:text-slate-200 hover:bg-slate-200 rounded-xl text-xs font-semibold border border-slate-200 dark:border-[#1a325a] flex items-center gap-1.5 transition-colors"
+            onClick={() => handleDownloadReportPDF()}
+            className="px-4 py-2.5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold rounded-xl shadow-md shadow-blue-600/20 flex items-center gap-2 transition-all hover:scale-[1.02] active:scale-[0.98]"
+            title="Download analytical visual report in PDF format"
           >
-            <FileText className="w-4 h-4 text-purple-500" />
-            Export Markdown
-          </button>
-
-          <button
-            onClick={handlePrint}
-            className="px-3.5 py-2.5 bg-slate-100 dark:bg-[#0a1e45] text-slate-700 dark:text-slate-200 hover:bg-slate-200 rounded-xl text-xs font-semibold border border-slate-200 dark:border-[#1a325a] flex items-center gap-1.5 transition-colors"
-          >
-            <Printer className="w-4 h-4" />
-            Print / PDF
+            <FileText className="w-4 h-4" />
+            Analytical Report (.pdf)
           </button>
         </div>
       </div>

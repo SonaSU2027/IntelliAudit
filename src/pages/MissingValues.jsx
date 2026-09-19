@@ -5,7 +5,8 @@ import {
 import {
   Activity, AlertCircle, CheckCircle2, Database, ListTodo,
   Sparkles, TrendingUp, AlertTriangle,
-  ArrowRight, Undo2, Check, Sliders, Eye, FileText
+  ArrowRight, Undo2, Check, Sliders, Eye, FileText,
+  Tag, Plus, X, Settings, HelpCircle, ChevronDown, ChevronUp
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { useDataset } from '../contexts/DatasetContext';
@@ -29,6 +30,9 @@ export default function MissingValues() {
   const [selectedColumn, setSelectedColumn] = useState(null);
   const [selectedMethod, setSelectedMethod] = useState('');
   const [customValueInput, setCustomValueInput] = useState('');
+  const [columnMarkerInputs, setColumnMarkerInputs] = useState({});
+  const [showGlobalMarkerManager, setShowGlobalMarkerManager] = useState(false);
+  const [selectedConfigCol, setSelectedConfigCol] = useState('');
   const [activeTab, setActiveTab] = useState('recommendations'); // 'recommendations' | 'history' | 'diff'
   const [toast, setToast] = useState(null); // { message, type: 'success' | 'error' }
 
@@ -37,6 +41,43 @@ export default function MissingValues() {
   const showNotification = (msg, type = 'success') => {
     setToast({ message: msg, type });
     setTimeout(() => setToast(null), 4500);
+  };
+
+  const handleMarkerInputChange = (colName, val) => {
+    setColumnMarkerInputs(prev => ({ ...prev, [colName]: val }));
+  };
+
+  const handleSaveColumnMarkers = (colName) => {
+    const rawVal = columnMarkerInputs[colName] !== undefined 
+      ? columnMarkerInputs[colName] 
+      : (Array.isArray(profilingOptions?.columnCustomMarkers?.[colName])
+          ? profilingOptions.columnCustomMarkers[colName].join(', ')
+          : (profilingOptions?.columnCustomMarkers?.[colName] || ''));
+    
+    const tokens = typeof rawVal === 'string'
+      ? rawVal.split(',').map(s => s.trim()).filter(Boolean)
+      : Array.isArray(rawVal) ? rawVal : [];
+
+    const updatedMarkers = {
+      ...(profilingOptions?.columnCustomMarkers || {}),
+      [colName]: tokens
+    };
+
+    updateProfilingOptions({ columnCustomMarkers: updatedMarkers });
+    showNotification(
+      tokens.length > 0 
+        ? `Custom missing values set for '${colName}': [${tokens.join(', ')}]` 
+        : `Cleared custom missing values for '${colName}'.`, 
+      'success'
+    );
+  };
+
+  const handleClearColumnMarkers = (colName) => {
+    const updatedMarkers = { ...(profilingOptions?.columnCustomMarkers || {}) };
+    delete updatedMarkers[colName];
+    setColumnMarkerInputs(prev => ({ ...prev, [colName]: '' }));
+    updateProfilingOptions({ columnCustomMarkers: updatedMarkers });
+    showNotification(`Cleared custom missing values for column '${colName}'.`, 'success');
   };
 
   // Map of original dataset rows keyed by internal stable __row_id (Fix 4: ID-based comparison)
@@ -71,15 +112,15 @@ export default function MissingValues() {
     );
   }
 
-  // Calculate missing stats from current working_dataset respecting profilingOptions
+  // Calculate missing stats from current working_dataset respecting profilingOptions and column-specific markers
   const totalRows = dataset.rows.length;
   const totalCols = dataset.headers.length;
   const totalCells = totalRows * totalCols;
   
   const missingByCol = dataset.headers.map(h => {
-    const missingCount = dataset.rows.filter(r => isMissingValue(r[h], profilingOptions)).length;
+    const missingCount = dataset.rows.filter(r => isMissingValue(r[h], profilingOptions, h)).length;
     const missingPercent = totalRows > 0 ? Number(((missingCount / totalRows) * 100).toFixed(2)) : 0;
-    const meta = columnMetadata.find(c => c.name === h);
+    const meta = (columnMetadata || []).find(c => c.name === h);
     return {
       name: h,
       count: missingCount,
@@ -93,7 +134,7 @@ export default function MissingValues() {
   const overallMissingPercent = totalCells > 0 ? Number(((totalMissingCells / totalCells) * 100).toFixed(2)) : 0;
 
   const rowsWithMissing = dataset.rows.filter(row =>
-    dataset.headers.some(h => isMissingValue(row[h], profilingOptions))
+    dataset.headers.some(h => isMissingValue(row[h], profilingOptions, h))
   ).length;
 
   let qualityGrade = 'A+';
@@ -105,6 +146,150 @@ export default function MissingValues() {
   // Columns that still have missing values
   const pendingColumns = missingByCol.filter(c => c.count > 0);
 
+// Helper: Return only logically valid imputation methods based on column data type (Fix Problem 2)
+function getAllowedImputationMethods(dataType) {
+  if (dataType === 'Integer' || dataType === 'Float') {
+    return ['Median', 'Mean', 'Mode', 'Custom Value', 'Drop Rows'];
+  }
+  if (dataType === 'Boolean') {
+    return ['Mode', 'Custom Value', 'Drop Rows'];
+  }
+  if (dataType === 'Date') {
+    return ['Forward Fill (ffill)', 'Backward Fill (bfill)', 'Median Date', 'Mode', 'Custom Value', 'Drop Rows'];
+  }
+  if (dataType === 'ID / Key') {
+    return ['Drop Rows', 'Custom Value'];
+  }
+  // Categorical (Mean and Median are mathematically undefined for categorical data)
+  return ['Mode', 'Custom Value', 'Drop Rows'];
+}
+
+// Helper: Calculate the exact replacement value for a chosen imputation method (Fix Problem 1)
+function getComputedMethodValuePreview(colMeta, method, datasetRows = []) {
+  if (!colMeta) return 'N/A';
+  const stats = colMeta.stats || {};
+  const dataType = colMeta.dataType || '';
+
+  if (method === 'Median') {
+    if (dataType !== 'Integer' && dataType !== 'Float') return 'N/A (Non-numeric)';
+    return stats.median !== undefined ? `${stats.median}` : 'N/A';
+  }
+  if (method === 'Mean') {
+    if (dataType !== 'Integer' && dataType !== 'Float') return 'N/A (Non-numeric)';
+    return stats.mean !== undefined ? `${stats.mean}` : 'N/A';
+  }
+  if (method === 'Mode') {
+    return stats.mode ? `"${stats.mode}" (${stats.modePercentage || 0}% frequency)` : 'N/A';
+  }
+  if (method === 'Median Date') {
+    if (dataType !== 'Date') return 'N/A';
+    const dates = datasetRows
+      .map(r => r[colMeta.name])
+      .filter(v => v && !isNaN(Date.parse(v)))
+      .map(v => new Date(v).getTime())
+      .sort((a, b) => a - b);
+    if (dates.length === 0) return 'N/A';
+    const midTime = dates[Math.floor(dates.length / 2)];
+    return new Date(midTime).toISOString().split('T')[0];
+  }
+  if (method === 'Forward Fill (ffill)' || method === 'Forward Fill' || method === 'ffill') {
+    const nonMissing = (datasetRows || []).filter(r => r[colMeta.name] !== undefined && r[colMeta.name] !== null && String(r[colMeta.name]).trim() !== '');
+    const firstMissingIdx = (datasetRows || []).findIndex(r => r[colMeta.name] === undefined || r[colMeta.name] === null || String(r[colMeta.name]).trim() === '');
+    let samplePrev = null;
+    if (firstMissingIdx > 0) {
+      for (let i = firstMissingIdx - 1; i >= 0; i--) {
+        const val = datasetRows[i]?.[colMeta.name];
+        if (val !== undefined && val !== null && String(val).trim() !== '') {
+          samplePrev = val;
+          break;
+        }
+      }
+    }
+    const fallback = nonMissing[0]?.[colMeta.name] || 'N/A';
+    return samplePrev ? `Previous Row Date: "${samplePrev}"` : `Initial Valid Date: "${fallback}"`;
+  }
+  if (method === 'Backward Fill (bfill)' || method === 'Backward Fill' || method === 'bfill') {
+    const nonMissing = (datasetRows || []).filter(r => r[colMeta.name] !== undefined && r[colMeta.name] !== null && String(r[colMeta.name]).trim() !== '');
+    const firstMissingIdx = (datasetRows || []).findIndex(r => r[colMeta.name] === undefined || r[colMeta.name] === null || String(r[colMeta.name]).trim() === '');
+    let sampleNext = null;
+    if (firstMissingIdx >= 0) {
+      for (let i = firstMissingIdx + 1; i < (datasetRows || []).length; i++) {
+        const val = datasetRows[i]?.[colMeta.name];
+        if (val !== undefined && val !== null && String(val).trim() !== '') {
+          sampleNext = val;
+          break;
+        }
+      }
+    }
+    const fallback = nonMissing[nonMissing.length - 1]?.[colMeta.name] || 'N/A';
+    return sampleNext ? `Next Row Date: "${sampleNext}"` : `Trailing Valid Date: "${fallback}"`;
+  }
+  if (method === 'Drop Rows') {
+    return `[Will remove rows with missing ${colMeta.name}]`;
+  }
+  return null;
+}
+
+// Helper: Validate custom user input for custom imputation
+function validateCustomImputationInput(val, dataType, colName = '') {
+  const trimmed = String(val ?? '').trim();
+  if (!trimmed) {
+    return { isValid: false, error: 'Custom value cannot be empty. Please enter a value before applying.' };
+  }
+
+  const colLower = colName.toLowerCase();
+
+  if (dataType === 'Integer' || colLower.includes('age') || colLower.includes('qty') || colLower.includes('experience')) {
+    const sanitized = trimmed.replace(/[$,]/g, '');
+    const num = Number(sanitized);
+    if (isNaN(num) || !isFinite(num)) {
+      return { isValid: false, error: `Invalid number: "${trimmed}" is not a valid integer.` };
+    }
+    if (!Number.isInteger(num)) {
+      return { isValid: false, error: `Whole integer required: "${trimmed}" contains decimals.` };
+    }
+    if (colLower === 'age' || colLower.endsWith('_age')) {
+      if (num < 0 || num > 120) return { isValid: false, error: `Age must be between 0 and 120 (got ${num}).` };
+    }
+    if (num < 0 && (colLower.includes('qty') || colLower.includes('experience'))) {
+      return { isValid: false, error: `${colName} cannot be negative.` };
+    }
+    return { isValid: true, sanitizedValue: num };
+  }
+
+  if (dataType === 'Float' || colLower.includes('salary') || colLower.includes('price') || colLower.includes('score')) {
+    const sanitized = trimmed.replace(/[$,]/g, '');
+    const num = Number(sanitized);
+    if (isNaN(num) || !isFinite(num)) {
+      return { isValid: false, error: `Invalid numeric value: "${trimmed}".` };
+    }
+    if (num < 0 && (colLower.includes('salary') || colLower.includes('price'))) {
+      return { isValid: false, error: `${colName} cannot be negative.` };
+    }
+    if ((colLower.includes('score') || colLower.includes('percentage')) && (num < 0 || num > 100)) {
+      return { isValid: false, error: `Score must be between 0 and 100.` };
+    }
+    return { isValid: true, sanitizedValue: num };
+  }
+
+  if (dataType === 'Boolean') {
+    const lower = trimmed.toLowerCase();
+    if (['true', '1', 'yes', 'y'].includes(lower)) return { isValid: true, sanitizedValue: 'true' };
+    if (['false', '0', 'no', 'n'].includes(lower)) return { isValid: true, sanitizedValue: 'false' };
+    return { isValid: false, error: 'Boolean value must be true, false, yes, no, 1, or 0.' };
+  }
+
+  if (dataType === 'Date' || colLower.includes('date') || colLower.includes('dob')) {
+    const parsed = Date.parse(trimmed);
+    if (isNaN(parsed)) {
+      return { isValid: false, error: 'Invalid Date format. Use YYYY-MM-DD (e.g. 2024-01-15).' };
+    }
+    return { isValid: true, sanitizedValue: trimmed };
+  }
+
+  return { isValid: true, sanitizedValue: trimmed };
+}
+
   // Handle single approval
   const handleApproveRecommendation = (rec) => {
     const result = runImputation(rec.column, rec.recommendedMethod, rec.suggestedValue, rec.reason, rec.confidence);
@@ -115,19 +300,40 @@ export default function MissingValues() {
     }
   };
 
-  // Handle custom imputation submit (Fix 5: Type-safe custom imputation)
-  const handleApplyCustomImputation = (colName) => {
-    if (!selectedMethod) return;
-    const meta = columnMetadata.find(c => c.name === colName);
+  // Handle custom imputation submit with strict validation (Fix 1 & 2)
+  const handleApplyCustomImputation = (colName, rec) => {
+    if (!selectedMethod) {
+      showNotification('Please select an imputation method.', 'error');
+      return;
+    }
+
+    const meta = columnMetadata.find(c => c.name === colName) || {};
+    let valueToApply = null;
+
+    if (selectedMethod === 'Custom Value') {
+      const validation = validateCustomImputationInput(customValueInput, rec?.dataType || meta.dataType, colName);
+      if (!validation.isValid) {
+        showNotification(validation.error, 'error');
+        return;
+      }
+      valueToApply = validation.sanitizedValue;
+    } else if (selectedMethod === 'Mean') {
+      valueToApply = meta.stats?.mean;
+    } else if (selectedMethod === 'Median') {
+      valueToApply = meta.stats?.median;
+    } else if (selectedMethod === 'Mode') {
+      valueToApply = meta.stats?.mode;
+    }
+
     const result = runImputation(
       colName, 
       selectedMethod, 
-      customValueInput, 
+      valueToApply, 
       `Manual custom ${selectedMethod} imputation by user.`
     );
     
     if (result && result.success === false) {
-      showNotification(result.error || 'Invalid custom value for this column type.', 'error');
+      showNotification(result.error || 'Invalid value for this imputation method.', 'error');
       return;
     }
 
@@ -306,7 +512,7 @@ export default function MissingValues() {
           </div>
         </div>
 
-        {/* Missing Value Detection Table Summary (Fix 6: Configurable ambiguous markers) */}
+        {/* Missing Value Detection Table Summary & Custom Markers Settings */}
         <div className="bg-white dark:bg-[#05142e]/80 backdrop-blur-sm p-6 rounded-2xl border border-slate-200 dark:border-[#1a325a] shadow-sm flex flex-col justify-between">
           <div>
             <div className="flex items-center justify-between mb-3">
@@ -315,42 +521,156 @@ export default function MissingValues() {
                 Detection Breakdown
               </h3>
               
-              {/* Optional Configurable Ambiguous Markers Toggle */}
-              <label className="flex items-center gap-1.5 cursor-pointer text-[11px] text-slate-500 dark:text-[#8ba3c9] hover:text-slate-800 dark:hover:text-white transition-colors" title="Toggle whether '-' and '?' should be treated as missing values">
-                <input
-                  type="checkbox"
-                  checked={Boolean(profilingOptions?.includeAmbiguousMarkers)}
-                  onChange={(e) => updateProfilingOptions({ includeAmbiguousMarkers: e.target.checked })}
-                  className="rounded text-blue-600 focus:ring-0 w-3.5 h-3.5"
-                />
-                <span>Include '-' &amp; '?'</span>
-              </label>
+              <div className="flex items-center gap-3">
+                {/* Optional Configurable Ambiguous Markers Toggle */}
+                <label className="flex items-center gap-1.5 cursor-pointer text-[11px] text-slate-500 dark:text-[#8ba3c9] hover:text-slate-800 dark:hover:text-white transition-colors" title="Toggle whether '-' and '?' should be treated as missing values">
+                  <input
+                    type="checkbox"
+                    checked={Boolean(profilingOptions?.includeAmbiguousMarkers)}
+                    onChange={(e) => updateProfilingOptions({ includeAmbiguousMarkers: e.target.checked })}
+                    className="rounded text-blue-600 focus:ring-0 w-3.5 h-3.5"
+                  />
+                  <span>Include '-' &amp; '?'</span>
+                </label>
+
+                {/* Toggle Column Custom Missing Markers Drawer */}
+                <button
+                  type="button"
+                  onClick={() => setShowGlobalMarkerManager(!showGlobalMarkerManager)}
+                  className={`text-[11px] px-2 py-1 rounded-md font-medium border flex items-center gap-1 transition-all ${
+                    showGlobalMarkerManager || Object.keys(profilingOptions?.columnCustomMarkers || {}).length > 0
+                      ? 'bg-indigo-50 text-indigo-600 border-indigo-200 dark:bg-indigo-500/20 dark:text-indigo-300 dark:border-indigo-500/30'
+                      : 'bg-slate-50 text-slate-600 border-slate-200 dark:bg-[#0a1f44] dark:text-slate-300 dark:border-[#1a325a] hover:bg-slate-100'
+                  }`}
+                  title="Configure custom specific values in each column to be considered missing"
+                >
+                  <Tag className="w-3 h-3 text-indigo-500" />
+                  <span>Custom Values</span>
+                  {Object.keys(profilingOptions?.columnCustomMarkers || {}).length > 0 && (
+                    <span className="w-2 h-2 rounded-full bg-indigo-500 animate-pulse"></span>
+                  )}
+                </button>
+              </div>
             </div>
 
             <div className="space-y-2 max-h-[200px] overflow-y-auto pr-1">
-              {missingByCol.map((col, idx) => (
-                <div key={idx} className="flex items-center justify-between text-xs p-2 rounded-lg bg-slate-50 dark:bg-[#0a1f44]">
-                  <div>
-                    <span className="font-semibold text-slate-800 dark:text-white">{col.name}</span>
-                    <span className="text-[10px] text-slate-400 block">{col.type}</span>
+              {missingByCol.map((col, idx) => {
+                const colMarkers = profilingOptions?.columnCustomMarkers?.[col.name];
+                const markerCount = Array.isArray(colMarkers) ? colMarkers.length : (colMarkers ? 1 : 0);
+
+                return (
+                  <div key={idx} className="flex items-center justify-between text-xs p-2 rounded-lg bg-slate-50 dark:bg-[#0a1f44]">
+                    <div>
+                      <div className="flex items-center gap-1.5">
+                        <span className="font-semibold text-slate-800 dark:text-white">{col.name}</span>
+                        {markerCount > 0 && (
+                          <span className="px-1.5 py-0.2 text-[9px] bg-indigo-100 text-indigo-700 dark:bg-indigo-500/20 dark:text-indigo-300 rounded font-medium" title="Custom missing value markers active for this column">
+                            {markerCount} custom
+                          </span>
+                        )}
+                      </div>
+                      <span className="text-[10px] text-slate-400 block">{col.type}</span>
+                    </div>
+                    <div className="text-right">
+                      <span className={`font-bold ${col.count > 0 ? 'text-rose-500' : 'text-emerald-500'}`}>
+                        {col.count} cells
+                      </span>
+                      <span className="text-[10px] text-slate-400 block">{col.missing}%</span>
+                    </div>
                   </div>
-                  <div className="text-right">
-                    <span className={`font-bold ${col.count > 0 ? 'text-rose-500' : 'text-emerald-500'}`}>
-                      {col.count} cells
-                    </span>
-                    <span className="text-[10px] text-slate-400 block">{col.missing}%</span>
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
 
           <div className="mt-4 pt-3 border-t border-slate-100 dark:border-[#1a325a] text-[11px] text-slate-400 flex items-center justify-between">
-            <span>Common markers:</span>
+            <span>Standard missing:</span>
             <span className="font-mono text-slate-500 dark:text-[#8ba3c9]">NaN, NULL, N/A, &quot;&quot;, None</span>
           </div>
         </div>
       </div>
+
+      {/* Global Column Custom Missing Markers Collapsible Manager */}
+      {showGlobalMarkerManager && (
+        <div className="mb-8 p-5 bg-white dark:bg-[#05142e]/90 rounded-2xl border border-indigo-200 dark:border-indigo-500/30 shadow-lg animate-fade-in">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <Tag className="w-4 h-4 text-indigo-500" />
+              <h4 className="text-sm font-bold text-slate-800 dark:text-white">
+                Optional: Treat Specific Column Values as Missing
+              </h4>
+            </div>
+            <button
+              onClick={() => setShowGlobalMarkerManager(false)}
+              className="text-slate-400 hover:text-slate-600 dark:hover:text-white text-xs font-semibold p-1"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+          <p className="text-xs text-slate-500 dark:text-[#8ba3c9] mb-4">
+            Specify custom values (e.g. <code className="bg-slate-100 dark:bg-[#0a1f44] px-1 py-0.5 rounded text-indigo-600 dark:text-indigo-400 font-mono">INVALID_DATE</code>, <code className="bg-slate-100 dark:bg-[#0a1f44] px-1 py-0.5 rounded text-indigo-600 dark:text-indigo-400 font-mono">-999</code>, <code className="bg-slate-100 dark:bg-[#0a1f44] px-1 py-0.5 rounded text-indigo-600 dark:text-indigo-400 font-mono">unknown</code>, <code className="bg-slate-100 dark:bg-[#0a1f44] px-1 py-0.5 rounded text-indigo-600 dark:text-indigo-400 font-mono">?</code>) for any column. Any cell containing these values will automatically be treated as missing and cleaned with your chosen imputation method.
+          </p>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+            {dataset.headers.map((colName) => {
+              const currentMarkers = profilingOptions?.columnCustomMarkers?.[colName];
+              const markerArr = Array.isArray(currentMarkers)
+                ? currentMarkers
+                : (typeof currentMarkers === 'string' && currentMarkers ? [currentMarkers] : []);
+              const inputValue = columnMarkerInputs[colName] !== undefined
+                ? columnMarkerInputs[colName]
+                : markerArr.join(', ');
+
+              return (
+                <div key={colName} className="p-3 bg-slate-50 dark:bg-[#0a1f44] rounded-xl border border-slate-200 dark:border-[#1a325a] flex flex-col justify-between">
+                  <div className="flex items-center justify-between mb-1.5">
+                    <span className="font-semibold text-xs text-slate-800 dark:text-white truncate max-w-[140px]" title={colName}>
+                      {colName}
+                    </span>
+                    {markerArr.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => handleClearColumnMarkers(colName)}
+                        className="text-[10px] text-rose-500 hover:text-rose-600 font-semibold"
+                      >
+                        Clear
+                      </button>
+                    )}
+                  </div>
+                  
+                  <div className="flex items-center gap-1.5">
+                    <input
+                      type="text"
+                      placeholder="e.g. INVALID_DATE, -999"
+                      value={inputValue}
+                      onChange={(e) => handleMarkerInputChange(colName, e.target.value)}
+                      onKeyDown={(e) => { if (e.key === 'Enter') handleSaveColumnMarkers(colName); }}
+                      className="w-full px-2.5 py-1.5 text-xs rounded-lg border border-slate-300 dark:border-[#1a325a] bg-white dark:bg-[#05142e] text-slate-800 dark:text-white focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => handleSaveColumnMarkers(colName)}
+                      className="px-2.5 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold rounded-lg shadow-sm transition-all shrink-0"
+                    >
+                      Save
+                    </button>
+                  </div>
+
+                  {markerArr.length > 0 && (
+                    <div className="flex flex-wrap gap-1 mt-2">
+                      {markerArr.map((tok, ti) => (
+                        <span key={ti} className="px-1.5 py-0.5 rounded bg-indigo-100 text-indigo-700 dark:bg-indigo-500/20 dark:text-indigo-300 text-[10px] font-mono">
+                          "{tok}"
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* Section Tabs */}
       <div className="flex border-b border-slate-200 dark:border-[#1a325a] mb-6">
@@ -422,10 +742,17 @@ export default function MissingValues() {
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               {missingRecommendations.map((rec) => {
-                const currentMissing = dataset.rows.filter(r => isMissingValue(r[rec.column], profilingOptions)).length;
+                const currentMissing = dataset.rows.filter(r => isMissingValue(r[rec.column], profilingOptions, rec.column)).length;
                 if (currentMissing === 0) return null;
 
                 const isCustomOpen = selectedColumn === rec.column;
+                const rawCustomMarkers = profilingOptions?.columnCustomMarkers?.[rec.column];
+                const configuredMarkers = Array.isArray(rawCustomMarkers) 
+                  ? rawCustomMarkers 
+                  : (typeof rawCustomMarkers === 'string' && rawCustomMarkers ? [rawCustomMarkers] : []);
+                const currentMarkerInput = columnMarkerInputs[rec.column] !== undefined 
+                  ? columnMarkerInputs[rec.column] 
+                  : configuredMarkers.join(', ');
 
                 return (
                   <div
@@ -446,6 +773,52 @@ export default function MissingValues() {
                             {currentMissing} missing ({((currentMissing / totalRows) * 100).toFixed(1)}%)
                           </span>
                         </div>
+                      </div>
+
+                      {/* Optional: Per-column custom missing tokens input */}
+                      <div className="mb-4 p-3 bg-slate-50 dark:bg-[#0a1f44]/60 rounded-xl border border-slate-200 dark:border-[#1a325a]/80">
+                        <div className="flex items-center justify-between mb-1.5">
+                          <span className="text-[11px] font-semibold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+                            <Tag className="w-3.5 h-3.5 text-indigo-500" />
+                            Treat Specific Values as Missing (Optional):
+                          </span>
+                          {configuredMarkers.length > 0 && (
+                            <button
+                              type="button"
+                              onClick={() => handleClearColumnMarkers(rec.column)}
+                              className="text-[10px] text-rose-500 hover:text-rose-600 font-semibold"
+                            >
+                              Clear
+                            </button>
+                          )}
+                        </div>
+                        <div className="flex gap-2">
+                          <input
+                            type="text"
+                            placeholder="e.g. INVALID_DATE, -999 (comma-separated)..."
+                            value={currentMarkerInput}
+                            onChange={(e) => handleMarkerInputChange(rec.column, e.target.value)}
+                            onKeyDown={(e) => { if (e.key === 'Enter') handleSaveColumnMarkers(rec.column); }}
+                            className="flex-1 px-2.5 py-1.5 text-xs rounded-lg border border-slate-300 dark:border-[#1a325a] bg-white dark:bg-[#05142e] text-slate-800 dark:text-white focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => handleSaveColumnMarkers(rec.column)}
+                            className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold rounded-lg transition-colors shadow-sm"
+                          >
+                            Set
+                          </button>
+                        </div>
+                        {configuredMarkers.length > 0 && (
+                          <div className="flex flex-wrap items-center gap-1 mt-2">
+                            <span className="text-[10px] text-slate-400">Active custom tokens:</span>
+                            {configuredMarkers.map((tok, ti) => (
+                              <span key={ti} className="px-1.5 py-0.5 rounded bg-indigo-100 text-indigo-700 dark:bg-indigo-500/20 dark:text-indigo-300 text-[10px] font-mono font-medium">
+                                "{tok}"
+                              </span>
+                            ))}
+                          </div>
+                        )}
                       </div>
 
                       {/* Recommendation Box */}
@@ -472,67 +845,120 @@ export default function MissingValues() {
                         )}
                       </div>
 
-                      {/* Custom Method Toggle (Human-in-the-loop with Type Safety) */}
-                      {isCustomOpen && (
-                        <div className="p-4 mb-4 rounded-xl bg-slate-50 dark:bg-[#0a1f44] border border-slate-200 dark:border-[#1a325a] animate-fade-in">
-                          <p className="text-xs font-bold text-slate-700 dark:text-slate-300 mb-2">Select Alternative Imputation Method:</p>
-                          <div className="grid grid-cols-2 gap-2 mb-3">
-                            {['Median', 'Mean', 'Mode', 'Custom Value', 'Drop Rows'].map((m) => (
-                              <button
-                                key={m}
-                                type="button"
-                                onClick={() => setSelectedMethod(m)}
-                                className={`px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all ${
-                                  selectedMethod === m
-                                    ? 'bg-blue-600 text-white font-semibold shadow-sm'
-                                    : 'bg-white dark:bg-[#05142e] text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-[#1a325a]'
-                                }`}
-                              >
-                                {m}
-                              </button>
-                            ))}
-                          </div>
+                      {/* Custom Method Toggle (Human-in-the-loop with Type Safety & Dynamic Value Preview) */}
+                      {isCustomOpen && (() => {
+                        const allowedMethods = getAllowedImputationMethods(rec.dataType);
+                        const activeMethod = selectedMethod || rec.recommendedMethod;
+                        const colMeta = columnMetadata.find(c => c.name === rec.column) || {};
+                        const previewValue = getComputedMethodValuePreview(colMeta, activeMethod, dataset?.rows || []);
+                        const customValidation = selectedMethod === 'Custom Value' 
+                          ? validateCustomImputationInput(customValueInput, rec.dataType, rec.column)
+                          : { isValid: true };
+                        const isApplyDisabled = !selectedMethod || (selectedMethod === 'Custom Value' && !customValidation.isValid);
 
-                          {selectedMethod === 'Custom Value' && (
-                            <div>
-                              <input
-                                type="text"
-                                placeholder={
-                                  rec.dataType === 'Integer' 
-                                    ? 'Enter whole integer (e.g. 25)...' 
-                                    : rec.dataType === 'Float' 
-                                    ? 'Enter decimal number (e.g. 25.5)...'
-                                    : rec.dataType === 'Boolean'
-                                    ? 'Enter true / false...'
-                                    : 'Enter text value...'
-                                }
-                                value={customValueInput}
-                                onChange={(e) => setCustomValueInput(e.target.value)}
-                                className="w-full px-3 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-[#1a325a] bg-white dark:bg-[#05142e] text-slate-800 dark:text-white mb-1 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                              />
-                              <span className="text-[10px] text-slate-400 mb-3 block">
-                                Type-safe validation: value must conform to <code className="font-mono text-blue-500">{rec.dataType}</code>.
+                        return (
+                          <div className="p-4 mb-4 rounded-xl bg-slate-50 dark:bg-[#0a1f44] border border-slate-200 dark:border-[#1a325a] animate-fade-in shadow-inner">
+                            <div className="flex items-center justify-between mb-2">
+                              <p className="text-xs font-bold text-slate-700 dark:text-slate-300">Select Alternative Imputation Strategy:</p>
+                              <span className="text-[10px] uppercase font-semibold text-slate-400 bg-slate-200/60 dark:bg-slate-800/60 px-2 py-0.5 rounded">
+                                {rec.dataType} Field
                               </span>
                             </div>
-                          )}
 
-                          <div className="flex justify-end gap-2">
-                            <button
-                              onClick={() => { setSelectedColumn(null); setSelectedMethod(''); }}
-                              className="px-3 py-1 text-xs text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-white"
-                            >
-                              Cancel
-                            </button>
-                            <button
-                              disabled={!selectedMethod || (selectedMethod === 'Custom Value' && !customValueInput.trim())}
-                              onClick={() => handleApplyCustomImputation(rec.column)}
-                              className="px-4 py-1.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-40 text-white text-xs font-semibold rounded-lg shadow-sm"
-                            >
-                              Apply Custom Method
-                            </button>
+                            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 mb-3">
+                              {allowedMethods.map((m) => (
+                                <button
+                                  key={m}
+                                  type="button"
+                                  onClick={() => setSelectedMethod(m)}
+                                  className={`px-2.5 py-2 rounded-lg text-xs font-medium transition-all text-left flex flex-col justify-center ${
+                                    selectedMethod === m
+                                      ? 'bg-blue-600 text-white font-semibold shadow-md shadow-blue-500/20 ring-2 ring-blue-400 dark:ring-blue-500'
+                                      : 'bg-white dark:bg-[#05142e] text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-[#1a325a] hover:border-blue-300 dark:hover:border-blue-600'
+                                  }`}
+                                >
+                                  <span>{m}</span>
+                                </button>
+                              ))}
+                            </div>
+
+                            {/* Dynamic Replacement Value Preview Box */}
+                            <div className="p-3 bg-blue-50/70 dark:bg-[#081a3d]/80 rounded-xl border border-blue-200/70 dark:border-blue-500/30 text-xs mb-3 space-y-1.5">
+                              <div className="flex items-center justify-between">
+                                <span className="text-slate-500 dark:text-[#8ba3c9] font-medium">Selected Strategy:</span>
+                                <span className="font-bold text-blue-700 dark:text-blue-300">{selectedMethod || 'None Selected'}</span>
+                              </div>
+                              <div className="flex items-center justify-between pt-1.5 border-t border-blue-100 dark:border-blue-900/50">
+                                <span className="text-slate-500 dark:text-[#8ba3c9] font-medium">Calculated Replacement Value:</span>
+                                <span className="font-mono font-bold text-indigo-600 dark:text-indigo-300 text-xs bg-white dark:bg-[#05142e] px-2 py-0.5 rounded border border-blue-200/50 dark:border-blue-900/50">
+                                  {selectedMethod === 'Custom Value'
+                                    ? (customValueInput.trim() ? customValueInput.trim() : '(Waiting for custom input...)')
+                                    : (previewValue ?? 'Select a method above')}
+                                </span>
+                              </div>
+                            </div>
+
+                            {/* Custom Value Input and Live Inline Validation */}
+                            {selectedMethod === 'Custom Value' && (
+                              <div className="mb-3">
+                                <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-300 mb-1">
+                                  Custom Replacement Value <span className="text-rose-500">*</span>:
+                                </label>
+                                <input
+                                  type="text"
+                                  placeholder={
+                                    rec.dataType === 'Integer' 
+                                      ? 'Enter whole integer (e.g. 25)...' 
+                                      : rec.dataType === 'Float' 
+                                      ? 'Enter decimal number (e.g. 25.5)...'
+                                      : rec.dataType === 'Boolean'
+                                      ? 'Enter true / false...'
+                                      : rec.dataType === 'Date'
+                                      ? 'Enter YYYY-MM-DD (e.g. 2024-01-15)...'
+                                      : 'Enter text value...'
+                                  }
+                                  value={customValueInput}
+                                  onChange={(e) => setCustomValueInput(e.target.value)}
+                                  className={`w-full px-3 py-2 text-xs rounded-lg border bg-white dark:bg-[#05142e] text-slate-800 dark:text-white transition-all focus:outline-none focus:ring-2 ${
+                                    customValueInput && !customValidation.isValid
+                                      ? 'border-rose-400 dark:border-rose-500/60 focus:ring-rose-400'
+                                      : 'border-slate-300 dark:border-[#1a325a] focus:ring-blue-500'
+                                  }`}
+                                />
+                                {!customValueInput.trim() ? (
+                                  <p className="text-[11px] text-amber-600 dark:text-amber-400 mt-1 flex items-center gap-1 font-medium">
+                                    <span>⚠</span> Custom value is required before approving.
+                                  </p>
+                                ) : !customValidation.isValid ? (
+                                  <p className="text-[11px] text-rose-600 dark:text-rose-400 mt-1 flex items-center gap-1 font-medium">
+                                    <span>✖</span> {customValidation.error}
+                                  </p>
+                                ) : (
+                                  <p className="text-[11px] text-emerald-600 dark:text-emerald-400 mt-1 flex items-center gap-1 font-medium">
+                                    <span>✓</span> Valid {rec.dataType} value.
+                                  </p>
+                                )}
+                              </div>
+                            )}
+
+                            <div className="flex justify-end gap-2 pt-2">
+                              <button
+                                onClick={() => { setSelectedColumn(null); setSelectedMethod(''); setCustomValueInput(''); }}
+                                className="px-3 py-1.5 text-xs text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-white font-medium rounded-lg hover:bg-slate-200/50 dark:hover:bg-slate-800/50 transition-colors"
+                              >
+                                Cancel
+                              </button>
+                              <button
+                                disabled={isApplyDisabled}
+                                onClick={() => handleApplyCustomImputation(rec.column, rec)}
+                                className="px-4 py-1.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-40 disabled:cursor-not-allowed text-white text-xs font-semibold rounded-lg shadow-sm transition-all"
+                              >
+                                Apply {selectedMethod || 'Custom'} Method
+                              </button>
+                            </div>
                           </div>
-                        </div>
-                      )}
+                        );
+                      })()}
                     </div>
 
                     {/* Actions Bar */}
@@ -672,8 +1098,8 @@ export default function MissingValues() {
                       {dataset.headers.map((h, colIdx) => {
                         const origVal = origRow[h];
                         const workVal = row[h];
-                        const isOriginallyMissing = isMissingValue(origVal, profilingOptions);
-                        const isNowFilled = isOriginallyMissing && !isMissingValue(workVal, profilingOptions);
+                        const isOriginallyMissing = isMissingValue(origVal, profilingOptions, h);
+                        const isNowFilled = isOriginallyMissing && !isMissingValue(workVal, profilingOptions, h);
 
                         return (
                           <td key={colIdx} className="px-4 py-3">

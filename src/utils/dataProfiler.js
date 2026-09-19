@@ -32,9 +32,10 @@ export const MISSING_MARKERS = DEFAULT_MISSING_MARKERS;
 /**
  * Checks if a cell value represents a missing value
  * @param {any} val - Cell value to check
- * @param {Object} options - Configuration options ({ includeAmbiguousMarkers: boolean, customMarkers: Set })
+ * @param {Object} options - Configuration options ({ includeAmbiguousMarkers: boolean, columnCustomMarkers: Object, customMarkers: Set|Array|string })
+ * @param {string} columnName - Name of the column being evaluated
  */
-export function isMissingValue(val, options = {}) {
+export function isMissingValue(val, options = {}, columnName = '') {
   if (val === null || val === undefined) return true;
   if (typeof val === 'number' && isNaN(val)) return true;
   const str = String(val).trim().toLowerCase();
@@ -45,8 +46,30 @@ export function isMissingValue(val, options = {}) {
     if (AMBIGUOUS_MISSING_MARKERS.has(str)) return true;
   }
 
-  if (options.customMarkers && typeof options.customMarkers.has === 'function') {
-    if (options.customMarkers.has(str)) return true;
+  // Column-specific custom missing markers (e.g. { "Date": ["invalid_date", "0000-00-00"], "Age": ["-999"] })
+  if (columnName && options.columnCustomMarkers && options.columnCustomMarkers[columnName]) {
+    const colMarkers = options.columnCustomMarkers[columnName];
+    if (Array.isArray(colMarkers)) {
+      if (colMarkers.some(m => String(m).trim().toLowerCase() === str)) return true;
+    } else if (colMarkers instanceof Set || (colMarkers && typeof colMarkers.has === 'function')) {
+      if (colMarkers.has(str)) return true;
+    } else if (typeof colMarkers === 'string' && colMarkers.trim() !== '') {
+      const markersList = colMarkers.split(',').map(m => m.trim().toLowerCase()).filter(Boolean);
+      if (markersList.includes(str)) return true;
+    }
+  }
+
+  // Global custom missing markers
+  if (options.customMarkers) {
+    const cm = options.customMarkers;
+    if (Array.isArray(cm)) {
+      if (cm.some(m => String(m).trim().toLowerCase() === str)) return true;
+    } else if (typeof cm.has === 'function') {
+      if (cm.has(str)) return true;
+    } else if (typeof cm === 'string' && cm.trim() !== '') {
+      const markersList = cm.split(',').map(m => m.trim().toLowerCase()).filter(Boolean);
+      if (markersList.includes(str)) return true;
+    }
   }
 
   return false;
@@ -55,8 +78,8 @@ export function isMissingValue(val, options = {}) {
 /**
  * Normalizes a cell value: returns null if missing, or trimmed original string/value
  */
-export function normalizeValue(val, options = {}) {
-  if (isMissingValue(val, options)) return null;
+export function normalizeValue(val, options = {}, columnName = '') {
+  if (isMissingValue(val, options, columnName)) return null;
   return typeof val === 'string' ? val.trim() : val;
 }
 
@@ -64,7 +87,7 @@ export function normalizeValue(val, options = {}) {
  * Determines the data type of a column based on non-missing sample values
  */
 export function detectColumnType(values, columnName = '', options = {}) {
-  const nonMissing = values.filter(v => !isMissingValue(v, options)).map(v => String(v).trim());
+  const nonMissing = values.filter(v => !isMissingValue(v, options, columnName)).map(v => String(v).trim());
   if (nonMissing.length === 0) return 'Categorical';
 
   // Check Boolean
@@ -149,9 +172,9 @@ function calculatePercentile(sortedArr, p) {
 /**
  * Computes descriptive statistics for numeric values
  */
-export function computeNumericStats(rawValues, options = {}) {
+export function computeNumericStats(rawValues, options = {}, columnName = '') {
   const numbers = rawValues
-    .filter(v => !isMissingValue(v, options))
+    .filter(v => !isMissingValue(v, options, columnName))
     .map(v => Number(v))
     .filter(n => !isNaN(n) && isFinite(n));
 
@@ -221,9 +244,9 @@ export function computeNumericStats(rawValues, options = {}) {
 /**
  * Computes frequency statistics for categorical values
  */
-export function computeCategoricalStats(rawValues, options = {}) {
+export function computeCategoricalStats(rawValues, options = {}, columnName = '') {
   const nonMissing = rawValues
-    .filter(v => !isMissingValue(v, options))
+    .filter(v => !isMissingValue(v, options, columnName))
     .map(v => String(v).trim());
 
   if (nonMissing.length === 0) {
@@ -293,7 +316,7 @@ export function computeDatasetProfile(headers, rows, metadata = {}, options = {}
     const colValues = rows.map(r => r[header]);
     
     // Missing count
-    const missingCount = colValues.filter(v => isMissingValue(v, options)).length;
+    const missingCount = colValues.filter(v => isMissingValue(v, options, header)).length;
     const missingPercentage = Number(((missingCount / totalRows) * 100).toFixed(2));
     totalMissingCells += missingCount;
 
@@ -301,26 +324,26 @@ export function computeDatasetProfile(headers, rows, metadata = {}, options = {}
     const dataType = detectColumnType(colValues, header, options);
 
     // Unique count on non-missing
-    const nonMissingValues = colValues.filter(v => !isMissingValue(v, options));
+    const nonMissingValues = colValues.filter(v => !isMissingValue(v, options, header));
     const uniqueValues = new Set(nonMissingValues.map(v => String(v).trim()));
     const uniqueCount = uniqueValues.size;
     const uniquePercentage = totalRows > 0 ? Number(((uniqueCount / totalRows) * 100).toFixed(2)) : 0;
 
     let stats;
     if (dataType === 'Integer' || dataType === 'Float') {
-      stats = computeNumericStats(colValues, options);
+      stats = computeNumericStats(colValues, options, header);
       numericalCols.push(header);
     } else if (dataType === 'Date') {
-      stats = computeCategoricalStats(colValues, options);
+      stats = computeCategoricalStats(colValues, options, header);
       dateCols.push(header);
     } else if (dataType === 'ID / Key') {
-      stats = computeCategoricalStats(colValues, options);
+      stats = computeCategoricalStats(colValues, options, header);
       idCols.push(header);
     } else if (dataType === 'Boolean') {
-      stats = computeCategoricalStats(colValues, options);
+      stats = computeCategoricalStats(colValues, options, header);
       booleanCols.push(header);
     } else {
-      stats = computeCategoricalStats(colValues, options);
+      stats = computeCategoricalStats(colValues, options, header);
       categoricalCols.push(header);
     }
 
@@ -356,7 +379,7 @@ export function computeDatasetProfile(headers, rows, metadata = {}, options = {}
 
   // Rows with at least one missing value
   const rowsWithMissing = rows.filter(row =>
-    validHeaders.some(h => isMissingValue(row[h], options))
+    validHeaders.some(h => isMissingValue(row[h], options, h))
   ).length;
 
   return {

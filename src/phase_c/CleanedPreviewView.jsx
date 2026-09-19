@@ -100,6 +100,11 @@ export default function CleanedPreviewView() {
   const afterMetrics = qualityComparison?.after || {};
   const delta = qualityComparison?.delta || {};
 
+  const beforeScore = beforeMetrics.overallScore ?? 0;
+  const afterScore = afterMetrics.overallScore ?? 0;
+  const scoreImprovement = delta.overallScore ?? 0;
+  const grade = afterScore >= 95 ? 'A+' : afterScore >= 90 ? 'A' : afterScore >= 80 ? 'B' : afterScore >= 70 ? 'C' : 'D';
+
   return (
     <div className="animate-fade-in max-w-7xl mx-auto text-slate-800 dark:text-white transition-colors duration-500 pb-16">
       {/* Top Header */}
@@ -141,104 +146,130 @@ export default function CleanedPreviewView() {
         </div>
       </div>
 
-      {/* Before vs After Comparison KPI Cards (C.6) */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 mb-8">
-        {/* Quality Score Delta */}
-        <div className="bg-gradient-to-br from-indigo-900/40 to-blue-900/40 backdrop-blur-sm p-5 rounded-2xl border border-indigo-500/30 shadow-md relative overflow-hidden">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-xs text-indigo-300 font-semibold uppercase tracking-wider">Quality Score</span>
-            <span className="px-2 py-0.5 bg-emerald-500/20 text-emerald-300 rounded text-[10px] font-bold">
-              +{delta.overallScore ?? 0}%
+      {/* Before vs After Comparison Hero & KPI Grid */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
+        {/* Dynamic Quality Score Hero Card (matching dark theme reference) */}
+        <div className="p-7 rounded-[28px] border border-blue-100 dark:border-[#0e2d63] shadow-lg dark:shadow-2xl text-slate-800 dark:text-white bg-gradient-to-br from-blue-50/90 via-white to-indigo-50/70 dark:bg-none dark:bg-[#031538] relative overflow-hidden flex flex-col justify-between transition-colors">
+          <div className="absolute top-0 right-0 w-64 h-64 bg-blue-500/10 dark:bg-blue-600/10 rounded-full blur-3xl pointer-events-none" />
+          
+          <div className="flex items-center justify-between mb-4">
+            <span className="text-xs font-bold uppercase tracking-wider text-blue-600 dark:text-[#3b82f6]">
+              DYNAMIC QUALITY SCORE
+            </span>
+            <span className="px-3.5 py-1 bg-emerald-100 border border-emerald-200 text-emerald-800 dark:bg-[#064e3b]/30 dark:border dark:border-[#059669]/40 dark:text-[#34d399] rounded-full text-xs font-bold flex items-center gap-1.5">
+              <TrendingUp className="w-3.5 h-3.5" />
+              +{scoreImprovement}% Improvement
             </span>
           </div>
-          <div className="flex items-baseline gap-2">
-            <span className="text-3xl font-black text-white">{afterMetrics.overallScore ?? 0}%</span>
-            <span className="text-xs text-slate-400 line-through">from {beforeMetrics.overallScore ?? 0}%</span>
+
+          <div className="flex items-center justify-center my-6">
+            <div className="relative flex items-center justify-center w-44 h-44 rounded-full border-8 border-blue-200 dark:border-[#133e87] bg-blue-50/80 dark:bg-[#020d26] dark:bg-none shadow-[0_4px_25px_rgba(59,130,246,0.15)] dark:shadow-[0_0_45px_rgba(37,99,235,0.25)]">
+              {/* Glowing Inner Circle */}
+              <div className="text-center">
+                <span className="text-4xl font-extrabold tracking-tight text-slate-900 dark:text-white block">
+                  {afterScore}%
+                </span>
+                <span className="text-xs font-bold uppercase tracking-widest text-emerald-600 dark:text-[#34d399] mt-1.5 block">
+                  GRADE: {grade}
+                </span>
+              </div>
+            </div>
           </div>
-          <div className="mt-2 text-[11px] text-emerald-400 font-medium flex items-center gap-1">
-            <TrendingUp className="w-3.5 h-3.5" />
-            {delta.relativeImprovement > 0 ? `+${delta.relativeImprovement}% relative improvement` : 'Optimal quality'}
+
+          <div className="pt-4 border-t border-slate-200 dark:border-[#0b2959] flex items-center justify-between text-xs">
+            <div>
+              <span className="text-slate-500 dark:text-[#7e9bbd] block">Baseline (Before)</span>
+              <span className="font-bold text-slate-900 dark:text-white text-base mt-0.5 block">{beforeScore}%</span>
+            </div>
+            <ArrowRight className="w-4 h-4 text-blue-500 dark:text-[#2563eb]" />
+            <div className="text-right">
+              <span className="text-slate-500 dark:text-[#7e9bbd] block">Post-Clean (After)</span>
+              <span className="font-bold text-emerald-600 dark:text-[#34d399] text-base mt-0.5 block">{afterScore}%</span>
+            </div>
           </div>
         </div>
 
-        {/* Records Count Delta */}
-        <div className="bg-white dark:bg-[#05142e]/80 backdrop-blur-sm p-5 rounded-2xl border border-slate-200 dark:border-[#1a325a] shadow-sm">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-xs text-slate-400 font-semibold uppercase tracking-wider">Total Records</span>
-            {delta.rowsDiff !== 0 && (
-              <span className="px-2 py-0.5 bg-rose-500/20 text-rose-400 rounded text-[10px] font-bold">
-                {delta.rowsDiff} rows
+        {/* 4 KPI Metrics Grid */}
+        <div className="lg:col-span-2 grid grid-cols-1 sm:grid-cols-2 gap-4">
+          {/* Records Count Delta */}
+          <div className="bg-white dark:bg-[#031538] p-6 rounded-[24px] border border-slate-200 dark:border-[#0e2d63] shadow-sm flex flex-col justify-between">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-xs text-slate-400 dark:text-[#7e9bbd] font-semibold uppercase tracking-wider">Total Records</span>
+              {delta.rowsDiff !== 0 && (
+                <span className="px-2 py-0.5 bg-rose-500/20 text-rose-400 rounded text-[10px] font-bold">
+                  {delta.rowsDiff} rows
+                </span>
+              )}
+            </div>
+            <div className="flex items-baseline gap-2">
+              <span className="text-3xl font-bold text-slate-900 dark:text-white">
+                {afterMetrics.counts?.totalRows?.toLocaleString() ?? 0}
               </span>
-            )}
+              <span className="text-xs text-slate-400">was {beforeMetrics.counts?.totalRows?.toLocaleString() ?? 0}</span>
+            </div>
+            <p className="mt-2 text-[11px] text-slate-400 dark:text-[#8ba3c9]">
+              {delta.duplicatesRemoved || 0} duplicate/outlier rows pruned
+            </p>
           </div>
-          <div className="flex items-baseline gap-2">
-            <span className="text-3xl font-bold text-slate-900 dark:text-white">
-              {afterMetrics.counts?.totalRows?.toLocaleString() ?? 0}
-            </span>
-            <span className="text-xs text-slate-400">was {beforeMetrics.counts?.totalRows?.toLocaleString() ?? 0}</span>
-          </div>
-          <p className="mt-2 text-[11px] text-slate-400">
-            {delta.duplicatesRemoved || 0} duplicate/outlier rows pruned
-          </p>
-        </div>
 
-        {/* Missing Cells Delta */}
-        <div className="bg-white dark:bg-[#05142e]/80 backdrop-blur-sm p-5 rounded-2xl border border-slate-200 dark:border-[#1a325a] shadow-sm">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-xs text-slate-400 font-semibold uppercase tracking-wider">Missing Cells</span>
-            <span className="px-2 py-0.5 bg-emerald-500/20 text-emerald-400 rounded text-[10px] font-bold">
-              {afterMetrics.counts?.missingCells === 0 ? 'All Fixed' : `${afterMetrics.counts?.missingCells} Left`}
-            </span>
+          {/* Missing Cells Delta */}
+          <div className="bg-white dark:bg-[#031538] p-6 rounded-[24px] border border-slate-200 dark:border-[#0e2d63] shadow-sm flex flex-col justify-between">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-xs text-slate-400 dark:text-[#7e9bbd] font-semibold uppercase tracking-wider">Missing Cells</span>
+              <span className="px-2 py-0.5 bg-emerald-500/20 text-emerald-400 rounded text-[10px] font-bold">
+                {afterMetrics.counts?.missingCells === 0 ? 'All Fixed' : `${afterMetrics.counts?.missingCells} Left`}
+              </span>
+            </div>
+            <div className="flex items-baseline gap-2">
+              <span className="text-3xl font-bold text-emerald-500">
+                {afterMetrics.counts?.missingCells ?? 0}
+              </span>
+              <span className="text-xs text-slate-400 line-through">was {beforeMetrics.counts?.missingCells ?? 0}</span>
+            </div>
+            <p className="mt-2 text-[11px] text-emerald-500 font-medium">
+              {delta.missingResolved || 0} empty cells imputed
+            </p>
           </div>
-          <div className="flex items-baseline gap-2">
-            <span className="text-3xl font-bold text-emerald-500">
-              {afterMetrics.counts?.missingCells ?? 0}
-            </span>
-            <span className="text-xs text-slate-400 line-through">was {beforeMetrics.counts?.missingCells ?? 0}</span>
-          </div>
-          <p className="mt-2 text-[11px] text-emerald-500 font-medium">
-            {delta.missingResolved || 0} empty cells imputed
-          </p>
-        </div>
 
-        {/* Duplicates Delta */}
-        <div className="bg-white dark:bg-[#05142e]/80 backdrop-blur-sm p-5 rounded-2xl border border-slate-200 dark:border-[#1a325a] shadow-sm">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-xs text-slate-400 font-semibold uppercase tracking-wider">Duplicates</span>
-            <span className="px-2 py-0.5 bg-emerald-500/20 text-emerald-400 rounded text-[10px] font-bold">
-              {afterMetrics.counts?.duplicateRows === 0 ? '0 Left' : `${afterMetrics.counts?.duplicateRows} Remaining`}
-            </span>
+          {/* Duplicates Delta */}
+          <div className="bg-white dark:bg-[#031538] p-6 rounded-[24px] border border-slate-200 dark:border-[#0e2d63] shadow-sm flex flex-col justify-between">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-xs text-slate-400 dark:text-[#7e9bbd] font-semibold uppercase tracking-wider">Duplicates</span>
+              <span className="px-2 py-0.5 bg-emerald-500/20 text-emerald-400 rounded text-[10px] font-bold">
+                {afterMetrics.counts?.duplicateRows === 0 ? '0 Left' : `${afterMetrics.counts?.duplicateRows} Remaining`}
+              </span>
+            </div>
+            <div className="flex items-baseline gap-2">
+              <span className="text-3xl font-bold text-indigo-500">
+                {afterMetrics.counts?.duplicateRows ?? 0}
+              </span>
+              <span className="text-xs text-slate-400 line-through">was {beforeMetrics.counts?.duplicateRows ?? 0}</span>
+            </div>
+            <p className="mt-2 text-[11px] text-indigo-400 font-medium">
+              {delta.duplicatesRemoved || 0} duplicates resolved
+            </p>
           </div>
-          <div className="flex items-baseline gap-2">
-            <span className="text-3xl font-bold text-indigo-500">
-              {afterMetrics.counts?.duplicateRows ?? 0}
-            </span>
-            <span className="text-xs text-slate-400 line-through">was {beforeMetrics.counts?.duplicateRows ?? 0}</span>
-          </div>
-          <p className="mt-2 text-[11px] text-indigo-400 font-medium">
-            {delta.duplicatesRemoved || 0} duplicates resolved
-          </p>
-        </div>
 
-        {/* Rules & Anomalies Delta */}
-        <div className="bg-white dark:bg-[#05142e]/80 backdrop-blur-sm p-5 rounded-2xl border border-slate-200 dark:border-[#1a325a] shadow-sm">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-xs text-slate-400 font-semibold uppercase tracking-wider">Violations & Outliers</span>
-            <span className="px-2 py-0.5 bg-emerald-500/20 text-emerald-400 rounded text-[10px] font-bold">
-              Cleaned
-            </span>
+          {/* Rules & Anomalies Delta */}
+          <div className="bg-white dark:bg-[#031538] p-6 rounded-[24px] border border-slate-200 dark:border-[#0e2d63] shadow-sm flex flex-col justify-between">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-xs text-slate-400 dark:text-[#7e9bbd] font-semibold uppercase tracking-wider">Violations & Outliers</span>
+              <span className="px-2 py-0.5 bg-emerald-500/20 text-emerald-400 rounded text-[10px] font-bold">
+                Cleaned
+              </span>
+            </div>
+            <div className="flex items-baseline gap-2">
+              <span className="text-3xl font-bold text-purple-500">
+                {(afterMetrics.counts?.ruleViolations || 0) + (afterMetrics.counts?.anomalies || 0)}
+              </span>
+              <span className="text-xs text-slate-400 line-through">
+                was {(beforeMetrics.counts?.ruleViolations || 0) + (beforeMetrics.counts?.anomalies || 0)}
+              </span>
+            </div>
+            <p className="mt-2 text-[11px] text-purple-400 font-medium">
+              {(delta.ruleViolationsFixed || 0) + (delta.anomaliesHandled || 0)} issues corrected
+            </p>
           </div>
-          <div className="flex items-baseline gap-2">
-            <span className="text-3xl font-bold text-purple-500">
-              {(afterMetrics.counts?.ruleViolations || 0) + (afterMetrics.counts?.anomalies || 0)}
-            </span>
-            <span className="text-xs text-slate-400 line-through">
-              was {(beforeMetrics.counts?.ruleViolations || 0) + (beforeMetrics.counts?.anomalies || 0)}
-            </span>
-          </div>
-          <p className="mt-2 text-[11px] text-purple-400 font-medium">
-            {(delta.ruleViolationsFixed || 0) + (delta.anomaliesHandled || 0)} issues corrected
-          </p>
         </div>
       </div>
 

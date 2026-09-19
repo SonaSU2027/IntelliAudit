@@ -17,10 +17,12 @@ export { executeApprovedCleaning } from './cleaningEngine.js';
 // Dynamic Quality Score & Comparison (C.6, C.7)
 export { computeDynamicQualityMetrics, computeBeforeAfterComparison, getQualityGrade } from './qualityMetrics.js';
 
-// Audit Report & CSV Downloads (C.8, C.10, C.11)
+// Audit Report, PDF & CSV Downloads (C.8, C.10, C.11)
 export { 
   buildAuditReportData, 
   downloadCleanedCSV, 
+  downloadAuditReportTXT,
+  downloadAnalyticalReportPDF,
   downloadAuditReportJSON, 
   downloadAuditReportMarkdown 
 } from './auditReportGenerator.js';

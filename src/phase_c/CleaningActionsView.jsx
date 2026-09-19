@@ -28,12 +28,15 @@ import {
   CheckCheck,
   RotateCcw,
   Zap,
-  Info
+  Info,
+  AlertCircle,
+  Check,
+  ShieldAlert
 } from 'lucide-react';
 
 export default function CleaningActionsView() {
   const navigate = useNavigate();
-  const { originalDataset } = useDataset();
+  const { originalDataset, columnMetadata } = useDataset();
   const {
     recommendations,
     approveRecommendation,
@@ -105,22 +108,193 @@ export default function CleaningActionsView() {
     });
   }, [recommendations, activeCategory, activeConfidence, activeStatus, searchQuery]);
 
+  // Get column metadata for the currently edited recommendation
+  const currentColumnMeta = useMemo(() => {
+    if (!editingRec || !columnMetadata) return null;
+    return columnMetadata.find(c => c.name === editingRec.column) || null;
+  }, [editingRec, columnMetadata]);
+
+  // Dynamic Validation Engine for Edit Modal
+  const validationResult = useMemo(() => {
+    if (!editingRec) return { isValid: true, error: null, warning: null, typeHint: null };
+
+    if (editAction === 'remove_row') {
+      return { 
+        isValid: true, 
+        error: null, 
+        warning: null, 
+        typeHint: 'Record will be permanently excluded from active working dataset.' 
+      };
+    }
+
+    if (editAction === 'recalculate_cross_column') {
+      return { 
+        isValid: true, 
+        error: null, 
+        warning: null, 
+        typeHint: 'Math integrity formula (e.g. Quantity × Unit Price = Total) will be evaluated dynamically.' 
+      };
+    }
+
+    if (editAction === 'impute') {
+      const stats = currentColumnMeta?.stats;
+      const imputeHint = stats?.median !== undefined 
+        ? `Will impute with column median (${stats.median}) or mean (${stats.mean})` 
+        : `Will impute with dominant mode ("${stats?.mode || 'Unknown'}")`;
+      return { isValid: true, error: null, warning: null, typeHint: imputeHint };
+    }
+
+    // For replace_value and clamp_value
+    const valStr = String(editValue ?? '').trim();
+    if (valStr === '') {
+      return { 
+        isValid: false, 
+        error: 'Replacement value cannot be empty. Enter a valid value or choose "Remove Row".', 
+        typeHint: 'Required input' 
+      };
+    }
+
+    const colType = currentColumnMeta?.dataType || '';
+    const colName = (editingRec.column || '').toLowerCase();
+
+    // Check Numeric (Integer / Float / Domain Numeric)
+    if (colType === 'Integer' || colType === 'Float' || colName.includes('age') || colName.includes('salary') || colName.includes('price') || colName.includes('score') || colName.includes('qty')) {
+      const sanitized = valStr.replace(/[$,]/g, '');
+      const num = Number(sanitized);
+
+      if (isNaN(num) || !isFinite(num)) {
+        return { 
+          isValid: false, 
+          error: `Non-numeric input: "${valStr}" is not a valid number for column '${editingRec.column}'.`, 
+          typeHint: 'Expected Numeric' 
+        };
+      }
+
+      if (colType === 'Integer' && !Number.isInteger(num)) {
+        return { 
+          isValid: false, 
+          error: `Integer required: "${valStr}" contains decimals, but '${editingRec.column}' is an Integer column.`, 
+          typeHint: 'Expected whole integer' 
+        };
+      }
+
+      // Domain business validations
+      if (colName === 'age' || colName.endsWith('_age')) {
+        if (num < 0 || num > 120) {
+          return { 
+            isValid: false, 
+            error: `Invalid Age: ${num} is outside the biological human range (0 to 120 years).`, 
+            typeHint: 'Valid range: 0 - 120' 
+          };
+        }
+      }
+
+      if (colName.includes('salary') || colName.includes('price') || colName.includes('quantity') || colName.includes('qty') || colName.includes('experience')) {
+        if (num < 0) {
+          return { 
+            isValid: false, 
+            error: `Negative value invalid: '${editingRec.column}' cannot be less than 0 (got ${num}).`, 
+            typeHint: 'Must be >= 0' 
+          };
+        }
+      }
+
+      if (colName.includes('score') || colName.includes('percentage') || colName.includes('percent')) {
+        if (num < 0 || num > 100) {
+          return { 
+            isValid: false, 
+            error: `Score/Percentage must be between 0 and 100 (got ${num}).`, 
+            typeHint: 'Valid range: 0 - 100' 
+          };
+        }
+      }
+
+      return { 
+        isValid: true, 
+        error: null, 
+        warning: null, 
+        typeHint: `Valid ${colType || 'Numeric'} value (${num})` 
+      };
+    }
+
+    // Check Date validation
+    if (colType === 'Date' || colName.includes('date') || colName.includes('dob')) {
+      const parsed = Date.parse(valStr);
+      if (isNaN(parsed)) {
+        return { 
+          isValid: false, 
+          error: `Invalid date: "${valStr}" could not be parsed. Use standard YYYY-MM-DD format.`, 
+          typeHint: 'Expected Date (YYYY-MM-DD)' 
+        };
+      }
+      return { 
+        isValid: true, 
+        error: null, 
+        warning: null, 
+        typeHint: 'Valid parsed Date format' 
+      };
+    }
+
+    return { 
+      isValid: true, 
+      error: null, 
+      warning: null, 
+      typeHint: `Valid ${colType || 'text'} entry` 
+    };
+  }, [editingRec, editAction, editValue, currentColumnMeta]);
+
   // Handle open edit modal
   const handleOpenEdit = (rec) => {
     setEditingRec(rec);
-    setEditValue(rec.userCustomValue !== null ? rec.userCustomValue : rec.suggestedValue);
+    setEditValue(rec.userCustomValue !== null ? rec.userCustomValue : (rec.suggestedValue ?? ''));
     setEditAction(rec.suggestedAction || 'replace_value');
   };
 
+  // Handle strategy switch with intelligent auto-fills
+  const handleStrategyChange = (newAction) => {
+    setEditAction(newAction);
+
+    if (newAction === 'clamp_value') {
+      const colName = (editingRec?.column || '').toLowerCase();
+      const currVal = Number(String(editingRec?.currentValue || '').replace(/[$,]/g, ''));
+      
+      if (colName === 'age' || colName.endsWith('_age')) {
+        setEditValue(currVal > 120 ? '120' : (currVal < 0 ? '0' : '65'));
+      } else if (colName.includes('salary') || colName.includes('price')) {
+        setEditValue(currVal < 0 ? '0' : String(currentColumnMeta?.stats?.q3 || '100000'));
+      } else if (currentColumnMeta?.stats?.max !== undefined) {
+        setEditValue(String(currentColumnMeta.stats.max));
+      } else {
+        setEditValue('0');
+      }
+    } else if (newAction === 'impute') {
+      const stats = currentColumnMeta?.stats;
+      setEditValue(stats?.median !== undefined ? String(stats.median) : (stats?.mode ? String(stats.mode) : 'Unknown'));
+    } else if (newAction === 'recalculate_cross_column') {
+      setEditValue('auto-recalculate');
+    } else if (newAction === 'replace_value') {
+      setEditValue(editingRec?.suggestedValue ?? '');
+    }
+  };
+
   const handleSaveEdit = () => {
+    if (!validationResult.isValid) {
+      showToast(`Validation error: ${validationResult.error}`);
+      return;
+    }
+
     if (editingRec) {
       editRecommendation(editingRec.id, editValue, editAction);
-      showToast(`Custom value saved for ${editingRec.issueTitle}`);
+      showToast(`Custom action saved & approved for ${editingRec.issueTitle}`);
       setEditingRec(null);
     }
   };
 
   const handleExecuteAndProceed = () => {
+    if (counts.approved === 0) {
+      showToast('Please approve at least one recommendation before proceeding.');
+      return;
+    }
     executeCleaning();
     navigate('/cleaned-preview');
   };
@@ -602,44 +776,104 @@ export default function CleaningActionsView() {
             </div>
 
             <div className="space-y-4 text-xs">
-              <div>
-                <label className="text-slate-400 font-medium block mb-1">Issue</label>
-                <p className="font-semibold text-slate-800 dark:text-white">{editingRec.issueTitle}</p>
-                <p className="text-slate-500 dark:text-[#8ba3c9] mt-0.5">{editingRec.explanation}</p>
+              {/* Issue Details & Column Type Header */}
+              <div className="p-3.5 bg-slate-50 dark:bg-[#0a1e45] rounded-xl border border-slate-100 dark:border-[#1a325a] space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-slate-800 dark:text-white text-sm">{editingRec.issueTitle}</span>
+                  {currentColumnMeta?.dataType && (
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-100 dark:bg-blue-500/20 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-500/30">
+                      Type: {currentColumnMeta.dataType}
+                    </span>
+                  )}
+                </div>
+                <p className="text-slate-500 dark:text-[#8ba3c9] leading-relaxed">{editingRec.explanation}</p>
+                {editingRec.column && editingRec.column !== 'All Columns (Whole Record)' && (
+                  <p className="text-[11px] text-slate-400 font-mono">Target Column: <strong>{editingRec.column}</strong> | Target Row: <strong>#{editingRec.rowId}</strong></p>
+                )}
               </div>
 
+              {/* Current Value Display */}
               <div>
-                <label className="text-slate-400 font-medium block mb-1">Original Current Value</label>
-                <div className="p-2.5 bg-slate-50 dark:bg-[#0a1e45] rounded-xl font-mono text-slate-700 dark:text-slate-300">
-                  {editingRec.currentValue || '<empty>'}
+                <label className="text-slate-400 font-medium block mb-1">Current Detected Value</label>
+                <div className="p-2.5 bg-slate-50 dark:bg-[#0a1e45] rounded-xl font-mono text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-[#1a325a]">
+                  {editingRec.currentValue || '<empty / null>'}
                 </div>
               </div>
 
+              {/* Strategy Selector */}
               <div>
                 <label className="text-slate-400 font-medium block mb-1">Select Cleaning Strategy</label>
                 <select
                   value={editAction}
-                  onChange={(e) => setEditAction(e.target.value)}
-                  className="w-full p-2.5 bg-slate-50 dark:bg-[#0a1e45] border border-slate-200 dark:border-[#1a325a] rounded-xl text-slate-800 dark:text-white focus:outline-none focus:border-blue-500"
+                  onChange={(e) => handleStrategyChange(e.target.value)}
+                  className="w-full p-2.5 bg-slate-50 dark:bg-[#0a1e45] border border-slate-200 dark:border-[#1a325a] rounded-xl text-slate-800 dark:text-white font-medium focus:outline-none focus:border-blue-500 transition-colors"
                 >
                   <option value="replace_value">Replace with Custom / Corrected Value</option>
                   <option value="remove_row">Remove Row Entirely</option>
-                  <option value="clamp_value">Clamp to Allowed Range</option>
-                  <option value="impute">Impute (Mean / Median / Mode)</option>
+                  <option value="clamp_value">Clamp to Allowed Range (Winsorize)</option>
+                  <option value="impute">Impute with Central Tendency (Median / Mode)</option>
                   <option value="recalculate_cross_column">Recalculate Cross-Column Formula</option>
                 </select>
               </div>
 
-              {editAction !== 'remove_row' && (
-                <div>
-                  <label className="text-slate-400 font-medium block mb-1">Custom Value</label>
+              {/* Custom Value Input & Validation (for replace_value and clamp_value) */}
+              {editAction !== 'remove_row' && editAction !== 'recalculate_cross_column' && (
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <label className="text-slate-400 font-medium">
+                      {editAction === 'clamp_value' ? 'Clamp Threshold Value' : (editAction === 'impute' ? 'Imputation Replacement Value' : 'Custom Replacement Value')}
+                    </label>
+                    {validationResult.typeHint && (
+                      <span className={`text-[10px] font-mono ${validationResult.isValid ? 'text-emerald-500' : 'text-amber-500'}`}>
+                        {validationResult.typeHint}
+                      </span>
+                    )}
+                  </div>
                   <input
                     type="text"
                     value={editValue}
                     onChange={(e) => setEditValue(e.target.value)}
-                    placeholder="Enter custom replacement value..."
-                    className="w-full p-2.5 bg-slate-50 dark:bg-[#0a1e45] border border-slate-200 dark:border-[#1a325a] rounded-xl text-slate-800 dark:text-white font-mono focus:outline-none focus:border-blue-500"
+                    placeholder={editAction === 'clamp_value' ? 'Enter boundary number (e.g. 120 or 0)...' : 'Enter replacement value...'}
+                    className={`w-full p-2.5 bg-slate-50 dark:bg-[#0a1e45] border rounded-xl text-slate-800 dark:text-white font-mono focus:outline-none transition-colors ${
+                      !validationResult.isValid 
+                        ? 'border-rose-500 dark:border-rose-500 focus:ring-1 focus:ring-rose-500 bg-rose-50/20 dark:bg-rose-950/20' 
+                        : 'border-slate-200 dark:border-[#1a325a] focus:border-blue-500'
+                    }`}
                   />
+                </div>
+              )}
+
+              {/* Strategy Specific Context Banners */}
+              {editAction === 'remove_row' && (
+                <div className="p-3 bg-rose-50/60 dark:bg-rose-950/30 rounded-xl border border-rose-200 dark:border-rose-500/30 flex items-start gap-2 text-rose-800 dark:text-rose-300 text-xs">
+                  <AlertTriangle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+                  <p>This row (<strong>#{editingRec.rowId}</strong>) will be dropped from the active working dataset upon applying cleaning operations.</p>
+                </div>
+              )}
+
+              {editAction === 'recalculate_cross_column' && (
+                <div className="p-3 bg-indigo-50/60 dark:bg-indigo-950/30 rounded-xl border border-indigo-200 dark:border-indigo-500/30 flex items-start gap-2 text-indigo-800 dark:text-indigo-300 text-xs">
+                  <Check className="w-4 h-4 flex-shrink-0 mt-0.5 text-indigo-500" />
+                  <p>The target field will be automatically recalculated based on sibling relational columns (e.g. <code>Quantity × Unit Price = Total</code>).</p>
+                </div>
+              )}
+
+              {/* Real-time Validation Error Banner */}
+              {!validationResult.isValid && (
+                <div className="p-3 bg-rose-50 dark:bg-rose-950/40 rounded-xl border border-rose-300 dark:border-rose-500/40 flex items-start gap-2 text-rose-700 dark:text-rose-300 text-xs animate-shake">
+                  <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5 text-rose-500" />
+                  <div>
+                    <p className="font-bold">Validation Error</p>
+                    <p className="mt-0.5">{validationResult.error}</p>
+                  </div>
+                </div>
+              )}
+
+              {/* Validated Confirmation Badge */}
+              {validationResult.isValid && editAction !== 'remove_row' && editAction !== 'recalculate_cross_column' && (
+                <div className="p-2.5 bg-emerald-50/60 dark:bg-emerald-950/30 rounded-xl border border-emerald-200 dark:border-emerald-500/30 flex items-center gap-2 text-emerald-700 dark:text-emerald-300 text-xs">
+                  <Check className="w-4 h-4 text-emerald-500" />
+                  <span>Input passes all type constraints and logical domain rules.</span>
                 </div>
               )}
             </div>
@@ -653,7 +887,12 @@ export default function CleaningActionsView() {
               </button>
               <button
                 onClick={handleSaveEdit}
-                className="px-5 py-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white rounded-xl text-xs font-bold shadow-md transition-all"
+                disabled={!validationResult.isValid}
+                className={`px-5 py-2 rounded-xl text-xs font-bold shadow-md transition-all ${
+                  validationResult.isValid
+                    ? 'bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white hover:scale-[1.02] active:scale-[0.98]'
+                    : 'bg-slate-300 dark:bg-slate-800 text-slate-500 cursor-not-allowed'
+                }`}
               >
                 Save & Approve
               </button>
