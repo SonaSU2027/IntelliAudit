@@ -250,6 +250,3 @@ npm run preview
 
 ---
 
-## 📄 License
-
-This project is licensed under the **MIT License** — feel free to use, modify, and distribute it for academic, personal, or commercial use.
