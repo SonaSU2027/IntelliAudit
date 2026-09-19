@@ -13,16 +13,19 @@
 ## 📖 Introduction & Problem Overview
 
 In modern machine learning, business intelligence, and enterprise data pipelines, **data cleaning consumes up to 80% of data scientists' time**. Real-world datasets are plagued with silent corruptions:
+
 * **Concealed Missing Values:** Missing values encoded as custom sentinels (`N/A`, `NULL`, `?`, `-`, `none`, empty strings) that bypass standard `null` detectors.
 * **Biased Imputations:** Arbitrary filling of missing values that shifts mean/median statistics, destroys variance, or distorts underlying distributions.
 * **Black-Box Cleaning:** Scripted cleaning operations that lack audit trails, explainability, or before-vs-after validation.
 * **Accidental Row Deletions:** Naive deduplication and row pruning that inadvertently discards critical data points.
 
 ### 💡 How IntelliAudit Solves This
+
 **IntelliAudit** bridges the gap between manual scripting and black-box automation with an **Explainable, Human-in-the-Loop Data Auditing & Cleansing Workflow**:
 
 $$\text{Ingest \& Validate} \longrightarrow \text{5D Profiling} \longrightarrow \text{Explainable AI Recommendations} \longrightarrow \text{Interactive Cleansing} \longrightarrow \text{Side-by-Side Diff} \longrightarrow \text{Compliance Audit Report}$$
 
+```mermaid
 flowchart LR
     A[Ingest & Validate] --> B[5D Profiling]
     B --> C[Explainable AI<br/>Recommendations]
