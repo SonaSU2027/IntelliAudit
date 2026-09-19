@@ -23,6 +23,13 @@ In modern machine learning, business intelligence, and enterprise data pipelines
 
 $$\text{Ingest \& Validate} \longrightarrow \text{5D Profiling} \longrightarrow \text{Explainable AI Recommendations} \longrightarrow \text{Interactive Cleansing} \longrightarrow \text{Side-by-Side Diff} \longrightarrow \text{Compliance Audit Report}$$
 
+flowchart LR
+    A[Ingest & Validate] --> B[5D Profiling]
+    B --> C[Explainable AI<br/>Recommendations]
+    C --> D[Interactive<br/>Cleansing]
+    D --> E[Side-by-Side<br/>Diff]
+    E --> F[Compliance Audit<br/>Report]
+
 1. **Deterministic & Dual-Dataset Preserving:** Retains an immutable baseline master dataset while executing auditable transformations on an active working copy.
 2. **Explainable Heuristic Recommendations:** Suggests context-aware cleaning strategies backed by statistical skewness, interquartile range (IQR), and data type analysis.
 3. **Distribution Shift Prevention:** Automatically flags post-cleaning distortions in central tendency and variance.
